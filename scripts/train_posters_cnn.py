@@ -13,7 +13,7 @@ from app.posters.model import build_model
 # --- CONFIG ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-DATASET_DIR = PROJECT_ROOT / "dataset"
+DATASET_DIR = PROJECT_ROOT / "data/processed/dataset"
 TRAIN_DIR = DATASET_DIR / "train"
 VAL_DIR = DATASET_DIR / "val"
 

@@ -1,46 +1,53 @@
-import os
 import shutil
 import random
 from pathlib import Path
 
 # --- CONFIG ---
-SOURCE_DIR = Path("sorted_movie_posters_paligema")
-DEST_DIR = Path("dataset")
+# Where your raw, genre-sorted posters live
+SOURCE_DIR = Path("data/raw/sorted_movie_posters_paligema")
+
+# Where to create the train/val dataset used by PyTorch
+DEST_DIR = Path("data/processed/dataset")
+
 TRAIN_SPLIT = 0.8
 RANDOM_SEED = 42
-MOVE_INSTEAD_OF_COPY = False  # True pour déplacer au lieu de copier
+MOVE_INSTEAD_OF_COPY = False  # True to move files instead of copying
 # ----------------
 
 random.seed(RANDOM_SEED)
 
-# Extensions d'images reconnues (insensible à la casse)
+# Recognized image extensions (case-insensitive)
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff"}
 
+
 def find_image_files(folder: Path):
-    """Retourne une liste de Path pour les fichiers images sous `folder`, récursivement."""
+    """Return a list of image Paths under `folder`, recursively."""
     files = []
     for p in folder.rglob("*"):
         if p.is_file() and p.suffix.lower() in IMG_EXTS:
             files.append(p)
     return files
 
+
 if not SOURCE_DIR.exists():
     raise SystemExit(f"Source directory not found: {SOURCE_DIR.resolve()}")
 
-# Création des dossiers train/val
+# Create destination train/val root folders
 for split in ("train", "val"):
     (DEST_DIR / split).mkdir(parents=True, exist_ok=True)
 
-# Parcours des sous-dossiers (chaque sous-dossier = un genre)
+# Each subfolder of SOURCE_DIR is treated as a genre
 genres = [d for d in SOURCE_DIR.iterdir() if d.is_dir()]
 if not genres:
-    print(f"Aucun sous-dossier (genre) trouvé dans {SOURCE_DIR.resolve()}. Vérifie la structure.")
+    print(
+        f"Aucun sous-dossier (genre) trouvé dans {SOURCE_DIR.resolve()}."
+        " Vérifie la structure."
+    )
 else:
     print(f"Genres trouvés: {[g.name for g in genres]}")
 
 for genre_dir in genres:
     print(f"\nTraitement du genre: {genre_dir.name}")
-    # trouver toutes les images pour ce genre (récursif)
     images = find_image_files(genre_dir)
     print(f"  -> Images trouvées (récursif): {len(images)}")
 
@@ -54,13 +61,12 @@ for genre_dir in genres:
     val_imgs = images[split_idx:]
 
     train_target = DEST_DIR / "train" / genre_dir.name
-    val_target   = DEST_DIR / "val" / genre_dir.name
+    val_target = DEST_DIR / "val" / genre_dir.name
     train_target.mkdir(parents=True, exist_ok=True)
     val_target.mkdir(parents=True, exist_ok=True)
 
     def copy_list(img_list, target_dir):
         for i, src_path in enumerate(img_list):
-            # éviter collisions: préfixer par un index et nom du sous-dossier source si besoin
             dst_name = f"{i:04d}_{src_path.name}"
             dst_path = target_dir / dst_name
             try:
