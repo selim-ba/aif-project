@@ -1,0 +1,14 @@
+# Note : we might work with different local environments, on different OS
+
+# Local virtual envs (uv, venv, conda, ...)
+.venv/
+venv/
+env/
+
+# Python bytecode and cache files
+__pycache__/
+*.pyc
+
+# macOS system files
+.DS_Store
+
