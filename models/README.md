@@ -1,7 +1,18 @@
-# Note on model weights
+# Model Weights
 
-Model weights are not stored in this repository
+Model weights are **NOT** stored in this repository.
 
-They will be hosted externally (Google Cloud)
+They are hosted on Google Drive.
 
-For local testing, place 'movie_genre_cpu.pt', inside this folder (it is ignored by git) and won't be pushed.
+## Part 1 – Poster genre model
+
+- File: `movie_genre_cpu.pt`
+- Location: https://drive.google.com/file/d/1OFUzMVmICkI0uqGEx5ejRqefkJsmtMME/view?usp=sharing
+
+For local development:
+
+1. Download `movie_genre_cpu.pt` from the link above.
+2. Place it in this `models/` directory so the full path is:
+
+   `models/movie_genre_cpu.pt`
+
