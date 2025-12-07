@@ -1,14 +1,39 @@
 # Note : we might work with different local environments, on different OS
 
-# Local virtual envs (uv, venv, conda, ...)
+# =========================
+# Python / Virtual Envs
+# =========================
 .venv/
 venv/
 env/
-
-# Python bytecode and cache files
 __pycache__/
 *.pyc
+.python-version
 
-# macOS system files
+# =========================
+# OS / Editor files
+# =========================
 .DS_Store
+.vscode/
+.idea/
+
+# =========================
+# Datasets
+# =========================
+data/
+dataset/
+
+# =========================
+# Model weights & artifacts
+# =========================
+models/*.pt
+models/*.bin
+models/*.pkl
+models/*.npy
+
+# =========================
+# Logs / temporary
+# =========================
+*.log
+*.tmp
 
