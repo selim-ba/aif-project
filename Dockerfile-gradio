@@ -4,19 +4,19 @@ FROM python:3.12.12-slim
 # Set the working directory in the container to /app
 WORKDIR /project-app
 
-COPY requirements-api.txt .
+COPY requirements-gradio.txt .
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --trusted-host pypi.python.org -r requirements-api.txt
+RUN pip install --no-cache-dir -r requirements-gradio.txt
 
 # Copy the current directory contents into the container at /app
 COPY . /project-app
 
 # Make port 5000 available to the world outside this container
-EXPOSE 8000
+EXPOSE 7860
 
-# Define environment variable for Flask to run in production mode
-ENV FLASK_ENV=production
+# Immediate logging without -t
+ENV PYTHONUNBUFFERED=1
 
-# Run mnist_api.py when the container launchess
-CMD ["python", "main.py"]
+# Run gradio-app.py when the container launchess
+CMD ["python", "gradio-app.py"]

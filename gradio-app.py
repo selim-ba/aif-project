@@ -21,7 +21,9 @@ def predict_poster_genre_gradio(image_file):
             files = {'file': (os.path.basename(image_file), f, 'image/jpeg')}
             
             # Envoyer la requête POST à votre API Flask
-            response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files)
+            #response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files)
+            #response = requests.post("http://host.docker.internal:8000/api/predict_poster_genre", files=files)
+            response = requests.post("http://classification-api:8000/api/predict_poster_genre", files=files)
             
             # Vérifier si la requête a réussi (statut 200)
             if response.status_code == 200:
@@ -42,8 +44,6 @@ def predict_poster_genre_gradio(image_file):
                 error_message = response.json().get("error", f"Erreur inconnue ({response.status_code})")
                 return f"Erreur de l'API Flask: {error_message}", []
 
-    except requests.exceptions.ConnectionError:
-        return "Erreur de connexion: Assurez-vous que votre API Flask est en cours d'exécution à l'adresse http://127.0.0.1:8000/api/predict_poster_genre", []
     except Exception as e:
         return f"Une erreur inattendue est survenue: {e}", []
 
