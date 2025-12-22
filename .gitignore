@@ -30,6 +30,7 @@ models/*.pt
 models/*.bin
 models/*.pkl
 models/*.npy
+models/*.joblib
 
 # =========================
 # Logs / temporary
