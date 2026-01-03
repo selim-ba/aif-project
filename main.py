@@ -10,7 +10,7 @@ from app.posters.inference import preprocess_image, predict_genres #the inferenc
 from scripts.train_ood import FeatureExtractor #feature extractor class
 from app.validation.inference_ood import get_features #feature extraction function
 
-app = Flask(__name__) #creation of the Flask application instance
+app = Flask(__name__) #creation of the Flask application instance 
 
 # Loading paths
 PROJECT_ROOT = Path(__file__).resolve().parent

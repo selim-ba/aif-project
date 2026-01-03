@@ -16,7 +16,7 @@ COPY . /project-app
 EXPOSE 7860
 
 # Immediate logging without -t
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 
 
 # Run gradio-app.py when the container launchess
 CMD ["python", "gradio-app.py"]

@@ -1,6 +1,6 @@
 import gradio as gr
 import requests
-import json
+import json 
 import os
 
 # --- Fonction de prédiction qui appelle votre API Flask ---
@@ -21,8 +21,8 @@ def predict_poster_genre_gradio(image_file):
             files = {'file': (os.path.basename(image_file), f, 'image/jpeg')}
             
             # Envoyer la requête POST à votre API Flask
-            response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files) #local
-            #response = requests.post("http://host.docker.internal:8000/api/predict_poster_genre", files=files) #via docker
+            #response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files) #local
+            response = requests.post("http://host.docker.internal:8000/api/predict_poster_genre", files=files) #via docker
             #response = requests.post("http://classification-api:8000/api/predict_poster_genre", files=files) #via cloud
             
             # Vérifier si la requête a réussi (statut 200)
@@ -54,7 +54,9 @@ def check_poster(image):
     try:
         with open(image, 'rb') as f:
             files = {'file': (os.path.basename(image), f, 'image/jpeg')}
-            response = requests.post("http://127.0.0.1:8000/api/check_is_poster", files=files) #local
+            #response = requests.post("http://127.0.0.1:8000/api/check_is_poster", files=files) #local
+            response = requests.post("http://host.docker.internal:8000/api/check_is_poster", files=files) #via docker
+            #response = requests.post("http://classification-api:8000/api/check_is_poster", files=files) #via cloud
             
             if response.status_code == 200:
                 data = response.json()

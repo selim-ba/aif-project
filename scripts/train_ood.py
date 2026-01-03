@@ -1,12 +1,8 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms,models
-from sklearn.ensemble import IsolationForest
 import joblib
-import os
 import numpy as np
 from pathlib import Path
-from PIL import Image
 from app.posters.model import load_trained_model
 from scripts.train_posters_cnn import get_device, load_datasets
 from sklearn.svm import OneClassSVM
