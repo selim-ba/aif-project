@@ -8,6 +8,7 @@ from scripts.train_posters_cnn import get_device, load_datasets
 from sklearn.svm import OneClassSVM
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from scripts.feature_extractor import FeatureExtractor
 
 # --- CONFIG ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,15 +21,6 @@ MODELS_DIR = PROJECT_ROOT / "models"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
 GENRES_PATH = MODELS_DIR / "genres.json"
 # ---------------
-
-class FeatureExtractor(nn.Module):
-    def __init__(self, original_model):
-        super(FeatureExtractor, self).__init__()
-        self.features = nn.Sequential(*list(original_model.children())[:-1]) 
-        
-    def forward(self, x):
-        x = self.features(x)
-        return x.view(x.size(0), -1) # Aplatir le vecteur
 
 def main():
     device = get_device()

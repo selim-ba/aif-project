@@ -7,7 +7,7 @@ from PIL import Image
 
 from app.posters.model import load_trained_model # resnet model
 from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
-from scripts.train_ood import FeatureExtractor #feature extractor class
+from scripts.feature_extractor import FeatureExtractor #feature extraction model
 from app.validation.inference_ood import get_features #feature extraction function
 
 app = Flask(__name__) #creation of the Flask application instance 
