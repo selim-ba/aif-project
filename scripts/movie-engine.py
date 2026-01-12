@@ -132,8 +132,8 @@ if __name__ == "__main__":
     train_bert(model, optimizer, train_loader, EPOCHS, criterion)
     
     # Save Model State
-    torch.save(model.state_dict(), "part3_model_weights.pth")
-    print("Model saved to part3_model_weights.pth")
+    torch.save(model.state_dict(), "../models/part3_model_weights.pth")
+    print("Model saved to ../models/part3_model_weights.pth")
 
 # --- 6. Embedding Extraction Function (Adapted from Notebook) ---
 def get_embeddings(model, dataloader):
@@ -171,8 +171,8 @@ if __name__ == "__main__":
         annoy_index.add_item(i, vector)
 
     annoy_index.build(10) # 10 trees
-    annoy_index.save('part3_movie_index.ann')
-    print("Annoy index saved to part3_movie_index.ann")
+    annoy_index.save('../models/part3_movie_index.ann')
+    print("Annoy index saved to ../models/part3_movie_index.ann")
     
     # Save dataframe mapping for API retrieval
-    df.reset_index(drop=True).to_pickle("part3_movie_brochure.pkl")
+    df.reset_index(drop=True).to_pickle("../models/part3_movie_brochure.pkl")

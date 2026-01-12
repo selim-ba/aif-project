@@ -16,7 +16,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MAX_LEN = 256
 
 # Load Dataframe for Metadata
-df = pd.read_pickle("part3_movie_brochure.pkl")
+df = pd.read_pickle("../models/part3_movie_brochure.pkl")
 id2label = {i: cat for i, cat in enumerate(df['movie_category'].unique())}
 label2id = {cat: i for i, cat in enumerate(df['movie_category'].unique())}
 
@@ -38,13 +38,13 @@ base_model = DistilBertForSequenceClassification.from_pretrained(
     output_hidden_states=True
 )
 model = BertClf(base_model)
-model.load_state_dict(torch.load("part3_model_weights.pth", map_location=DEVICE))
+model.load_state_dict(torch.load("../models/part3_model_weights.pth", map_location=DEVICE))
 model.to(DEVICE)
 model.eval()
 
 # Load Annoy Index
 annoy_index = AnnoyIndex(768, 'angular')
-annoy_index.load('part3_movie_index.ann')
+annoy_index.load('../models/part3_movie_index.ann')
 
 # --- Request Models ---
 class PlotRequest(BaseModel):
