@@ -16,7 +16,7 @@ app = Flask(__name__) #creation of the Flask application instance
 PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
-GENRES_PATH = MODELS_DIR / "genres.json"
+GENRES_PATH = "scripts/genres.json"
 
 # Load classes : {"classes": ["action", "animation", "comedy", ...]}
 with GENRES_PATH.open("r", encoding="utf-8") as f:
