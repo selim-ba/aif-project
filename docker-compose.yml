@@ -4,7 +4,7 @@ services: # services to run
     #build: 
       #context: . # specify the directory of the Dockerfile
       #dockerfile: Dockerfile-api # specify the Dockerfile name
-    image: film-flask-app:latest
+    image: film-flask-app:latest 
     ports:
       - "8000:8000" # specify port mapping
 

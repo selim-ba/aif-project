@@ -17,7 +17,7 @@ def load_trained_model(weights_path: str, num_classes: int, device: str = "cpu")
     Load a trained model from a state_dict saved with CPU compatibility.
     """
     model = build_model(num_classes)
-    state_dict = torch.load(weights_path, map_location=device)
+    state_dict = torch.load(weights_path, map_location=device, weights_only=False)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()

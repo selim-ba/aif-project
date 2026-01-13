@@ -7,7 +7,7 @@ from PIL import Image
 
 from app.posters.model import load_trained_model # resnet model
 from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
-from scripts.feature_extractor import FeatureExtractor #feature extraction model
+from app.validation.feature_extractor import FeatureExtractor #feature extraction model
 from app.validation.inference_ood import get_features #feature extraction function
 
 app = Flask(__name__) #creation of the Flask application instance 
@@ -16,7 +16,7 @@ app = Flask(__name__) #creation of the Flask application instance
 PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
-GENRES_PATH = "scripts/genres.json"
+GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
 
 # Load classes : {"classes": ["action", "animation", "comedy", ...]}
 with GENRES_PATH.open("r", encoding="utf-8") as f:
