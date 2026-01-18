@@ -1,0 +1,42 @@
+# Note : we might work with different local environments, on different OS
+
+# =========================
+# Python / Virtual Envs
+# =========================
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.python-version
+
+# =========================
+# OS / Editor files
+# =========================
+.DS_Store
+.vscode/
+.idea/
+
+# =========================
+# Datasets
+# =========================
+data/
+dataset/
+
+# =========================
+# Model weights & artifacts
+# =========================
+models/
+#models/*.pt
+#models/*.bin
+#models/*.pkl
+#models/*.npy
+#models/*.joblib
+
+# =========================
+# Logs / temporary
+# =========================
+*.log
+*.tmp
+
+*.tar.gz
