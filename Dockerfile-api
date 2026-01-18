@@ -12,7 +12,15 @@ RUN pip install --trusted-host pypi.python.org -r requirements-api.txt
 # Copy the current directory contents into the container at /app
 COPY . /project-app
 
-# Make port 5000 available to the world outside this container
+#Create the directory to store the model
+RUN mkdir -p models
+
+# 1. On installe gdown (outil spécialisé pour Google Drive)
+RUN pip install --no-cache-dir gdown
+
+RUN gdown --id 1i03Dkl4o5ic-t-v-IfkoA8WXvLkUFehQ -O models/movie_genre_cpu.pt
+
+# Make port 8000 available to the world outside this container
 EXPOSE 8000
 
 # Define environment variable for Flask to run in production mode

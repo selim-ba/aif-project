@@ -1,0 +1,5 @@
+#Exclude non useful files from the Docker build context
+__pycache__/
+dataset/
+scripts/
+*.tar.gz

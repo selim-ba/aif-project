@@ -1,10 +1,10 @@
 version: '3.8' # specify docker-compose version
 services: # services to run
-  classification-api: # name of the first service
+  flask-api: # name of the first service
     #build: 
     #  context: . # specify the directory of the Dockerfile
     #  dockerfile: Dockerfile-api # specify the Dockerfile name
-    image: aif-project-classification-api
+    image: film-flask-app:latest
     ports:
       - "8000:8000" # specify port mapping
 
@@ -12,8 +12,8 @@ services: # services to run
     #build:
     #  context: . # specify the directory of the Dockerfile
     #  dockerfile: Dockerfile-gradio # specify the Dockerfile name
-    image: aif-project-gradio-app
+    image: film-gradio-app:latest
     ports:
       - "7860:7860" # specify port mapping
     depends_on:
-      - classification-api # specify service dependencie
+      - flask-api # specify service dependencie
