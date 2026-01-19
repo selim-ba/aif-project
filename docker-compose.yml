@@ -1,0 +1,19 @@
+version: '3.8' # specify docker-compose version
+services: # services to run
+  flask-api: # name of the first service
+    #build: 
+      #context: . # specify the directory of the Dockerfile
+      #dockerfile: Dockerfile-api # specify the Dockerfile name
+    image: film-flask-app:latest 
+    ports:
+      - "8000:8000" # specify port mapping
+
+  gradio-app: #Name of the second service
+    #build:
+      #context: . # specify the directory of the Dockerfile
+      #dockerfile: Dockerfile-gradio # specify the Dockerfile name
+    image: film-gradio-app:latest
+    ports:
+      - "7860:7860" # specify port mapping
+    depends_on:
+      - flask-api # specify service dependency

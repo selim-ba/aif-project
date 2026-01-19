@@ -1,0 +1,14 @@
+{
+  "classes": [
+    "action",
+    "animation",
+    "comedy",
+    "documentary",
+    "drama",
+    "fantasy",
+    "horror",
+    "romance",
+    "science_fiction",
+    "thriller"
+  ]
+}
