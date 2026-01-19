@@ -10,21 +10,20 @@ from sklearn.model_selection import train_test_split
 from annoy import AnnoyIndex
 import os
 
-# --- 1. Data Configuration ---
-CSV_FILE = 'movie_plots.csv'  # Your uploaded file
+# 1. Data Configuration
+CSV_FILE = 'movie_plots.csv'
 MODEL_NAME = 'distilbert-base-uncased'
-MAX_LEN = 256  # Max sequence length for plots
+MAX_LEN = 256   # Max sequence length for plots
 BATCH_SIZE = 16
-EPOCHS = 2     # Adjust based on your compute power
+EPOCHS = 2      # To increase if we want better results (on one of our PCs)
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# --- 2. Load and Preprocess Data ---
+# 2. Load and Preprocess Data
 def load_data(filepath):
     df = pd.read_csv(filepath)
-    # Filter out potential malformed rows
-    df = df.dropna(subset=['movie_plot', 'movie_category'])
     
     # Create Label Mappings
+
     unique_labels = df['movie_category'].unique().tolist()
     label2id = {label: i for i, label in enumerate(unique_labels)}
     id2label = {i: label for i, label in enumerate(unique_labels)}
@@ -32,7 +31,7 @@ def load_data(filepath):
     df['label_id'] = df['movie_category'].map(label2id)
     return df, label2id, id2label
 
-# --- 3. Dataset Class (Adapted from your Notebook) ---
+# 3. Dataset Class (like we did in practical sessions)
 tokenizer = DistilBertTokenizerFast.from_pretrained(MODEL_NAME)
 
 class MoviePlotDataset(Dataset):
@@ -41,8 +40,6 @@ class MoviePlotDataset(Dataset):
         self.labels = labels.to_list()
         self.tokenizer = tokenizer
         self.max_len = max_len
-        
-        # Tokenize immediately as per your notebook style
         self.encodings = tokenizer(
             self.texts, 
             truncation=True, 
@@ -58,23 +55,22 @@ class MoviePlotDataset(Dataset):
     def __len__(self):
         return len(self.labels)
 
-# --- 4. Model Definition (Adapted from your Notebook) ---
+# 4. Model Definition
 class BertClf(nn.Module):
     def __init__(self, distilbert_model):
         super(BertClf, self).__init__()
         self.distilbert = distilbert_model
         
-        # Freeze parameters except the classifier (Technique from your notebook)
+        # Freeze parameters except the classifier
         for name, param in distilbert_model.named_parameters():
             if "classifier" not in name:
                 param.requires_grad = False
 
     def forward(self, input_ids, mask):
-        # Return tuple: (logits, hidden_states, attentions)
         out = self.distilbert(input_ids, attention_mask=mask)
         return out.logits, out.hidden_states, out.attentions
 
-# --- 5. Training Function ---
+# 5. Training Function
 def train_bert(model, optimizer, dataloader, epochs, criterion):
     model.train()
     for epoch in range(epochs):
@@ -97,7 +93,7 @@ def train_bert(model, optimizer, dataloader, epochs, criterion):
             running_loss += loss.item()
             t.set_description(f"Epoch {epoch+1} Loss: {running_loss / (i+1):.4f}")
 
-# --- Main Execution Block for Training ---
+# Main Execution Block for Training
 if __name__ == "__main__":
     print("Loading Data...")
     df, label2id, id2label = load_data(CSV_FILE)
@@ -124,7 +120,7 @@ if __name__ == "__main__":
     model = BertClf(base_model).to(DEVICE)
     
     # Optimizer
-    optimizer = AdamW(model.parameters(), lr=1e-4) # Slightly higher LR since we froze body
+    optimizer = AdamW(model.parameters(), lr=1e-4) # We can use a higher LR since we froze the body already
     criterion = nn.CrossEntropyLoss()
 
     # Train
@@ -135,7 +131,7 @@ if __name__ == "__main__":
     torch.save(model.state_dict(), "../models/part3_model_weights.pth")
     print("Model saved to ../models/part3_model_weights.pth")
 
-# --- 6. Embedding Extraction Function (Adapted from Notebook) ---
+# 6. Embedding Extraction Function
 def get_embeddings(model, dataloader):
     model.eval()
     embeddings = []
@@ -147,7 +143,6 @@ def get_embeddings(model, dataloader):
             # Forward pass
             _, hidden_states, _ = model(input_ids, mask=attention_mask)
             
-            # Use [CLS] token from last layer (Technique from notebook)
             # hidden_states is a tuple, -1 is the last layer
             last_layer_cls = hidden_states[-1][:, 0, :] 
             embeddings.append(last_layer_cls.cpu().numpy())
@@ -157,20 +152,20 @@ def get_embeddings(model, dataloader):
 if __name__ == "__main__":
     # Create a full dataset loader for indexing
     full_dataset = MoviePlotDataset(df['movie_plot'], df['label_id'], tokenizer, MAX_LEN)
-    full_loader = DataLoader(full_dataset, batch_size=BATCH_SIZE, shuffle=False) # Order matters!
+    full_loader = DataLoader(full_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # Get Embeddings
     print("Computing Embeddings for Annoy Index...")
     plot_embeddings = get_embeddings(model, full_loader)
 
-    # --- 7. Build Annoy Index ---
-    embedding_dim = 768  # DistilBert dimension
-    annoy_index = AnnoyIndex(embedding_dim, 'angular') # Angular distance is good for text sim
+    # Build Annoy Index
+    embedding_dim = 768  # Dimension of DistilBert
+    annoy_index = AnnoyIndex(embedding_dim, 'angular') # Seems like Angular is a good distance for text
 
     for i, vector in enumerate(plot_embeddings):
         annoy_index.add_item(i, vector)
 
-    annoy_index.build(10) # 10 trees
+    annoy_index.build(10)
     annoy_index.save('../models/part3_movie_index.ann')
     print("Annoy index saved to ../models/part3_movie_index.ann")
     

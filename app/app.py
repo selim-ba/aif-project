@@ -1,4 +1,3 @@
-# app.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import torch
@@ -10,7 +9,7 @@ import numpy as np
 
 app = FastAPI(title="Movie Genre & Recommendation API")
 
-# --- Configuration & Loading ---
+# Configuration & Loading
 MODEL_NAME = 'distilbert-base-uncased'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MAX_LEN = 256
@@ -20,7 +19,7 @@ df = pd.read_pickle("../models/part3_movie_brochure.pkl")
 id2label = {i: cat for i, cat in enumerate(df['movie_category'].unique())}
 label2id = {cat: i for i, cat in enumerate(df['movie_category'].unique())}
 
-# Re-define Model Class (Must match training script)
+# Define Model Class
 class BertClf(nn.Module):
     def __init__(self, distilbert_model):
         super(BertClf, self).__init__()
@@ -46,11 +45,11 @@ model.eval()
 annoy_index = AnnoyIndex(768, 'angular')
 annoy_index.load('../models/part3_movie_index.ann')
 
-# --- Request Models ---
+# Request Models
 class PlotRequest(BaseModel):
     plot: str
 
-# --- Helper Function ---
+# Helper Function
 def process_text(text):
     inputs = tokenizer(
         text, 
@@ -61,7 +60,7 @@ def process_text(text):
     )
     return inputs['input_ids'].to(DEVICE), inputs['attention_mask'].to(DEVICE)
 
-# --- API Routes ---
+# API Routes
 
 @app.post("/predict_genre")
 async def predict_genre(request: PlotRequest):
@@ -78,32 +77,5 @@ async def predict_genre(request: PlotRequest):
         "predicted_genre": id2label[prediction],
         "label_id": prediction
     }
-
-@app.post("/recommend")
-async def recommend_movies(request: PlotRequest):
-    """
-    Recommends 5 similar movies based on the input plot.
-    """
-    input_ids, mask = process_text(request.plot)
-    
-    with torch.no_grad():
-        # Extract embedding using the same technique as training
-        _, hidden_states, _ = model(input_ids, mask)
-        # Last layer, [CLS] token (batch index 0, sequence index 0)
-        query_vector = hidden_states[-1][:, 0, :].cpu().numpy().flatten()
-    
-    # Get Nearest Neighbors
-    indices = annoy_index.get_nns_by_vector(query_vector, 5)
-    
-    recommendations = []
-    for idx in indices:
-        movie_info = df.iloc[idx]
-        recommendations.append({
-            "category": movie_info['movie_category'],
-            "plot_snippet": movie_info['movie_plot'][:200] + "...",
-            "poster_path": movie_info['movie_poster_path']
-        })
-        
-    return {"recommendations": recommendations}
 
 # Run with: uvicorn app:app --reload
