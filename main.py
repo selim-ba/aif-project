@@ -123,7 +123,7 @@ def check_is_poster():
         return jsonify({"error": str(e)}), 500
 
 #NLP route
-@app.route("/predict_genre", methods=['POST'])
+@app.route("/api/plot_predict_genre", methods=['POST'])
 def predict_genre():
     """
     Flask route to predict the genre of a movie based on its plot.
