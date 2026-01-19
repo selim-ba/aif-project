@@ -82,7 +82,7 @@ with gr.Blocks(title="Movie Poster AI") as demo:
         
         with gr.Column():
             # Sorties différentes pour chaque action
-            output_check = gr.Textbox(label="Validation Result")
+            output_check = gr.JSON(label="Validation Result")
             output_predict = gr.JSON(label="Predictions Result")
 
     # --- Connexion des événements ---

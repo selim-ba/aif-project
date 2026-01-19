@@ -22,11 +22,9 @@ RUN mkdir -p models
 RUN pip install --no-cache-dir gdown
 
 #Download the genre prediction based on posters
-#RUN curl -L "https://docs.google.com/uc?export=download&id=1i03Dkl4o5ic-t-v-IfkoA8WXvLkUFehQ" > /project-app/models/movie_genre_cpu.pt
 RUN gdown --id 1i03Dkl4o5ic-t-v-IfkoA8WXvLkUFehQ -O models/movie_genre_cpu.pt
 
 #Download the OOD model
-#RUN curl -L "https://docs.google.com/uc?export=download&id=1V4N-plBuXbJkVgTnhjH5EVsL4n9eBtyv" > models/ood_detector.joblib
 RUN gdown --id 1V4N-plBuXbJkVgTnhjH5EVsL4n9eBtyv -O models/ood_detector.joblib
 
 # Make port 5000 available to the world outside this container
