@@ -41,7 +41,7 @@ FEATURE_EXTRACTOR_MODEL.eval()
 # Sanity check, it should return {"status": "ok"} with HTTP code 200
 @app.route("/health", methods=["GET"])
 def health():
-    """ health check."""
+    """ health check."""    
     return jsonify({"status": "ok"}), 200
 
 # Main prediction route
@@ -102,17 +102,21 @@ def check_is_poster():
         return jsonify({"error": "OOD model not loaded"}), 500
 
     try:
-        features = get_features(file,FEATURE_EXTRACTOR_MODEL).reshape(1, -1) #reshaping to fit the model input
-        # 1 = Inlier (Poster), -1 = Outlier (Pas un poster)
-        prediction = OOD_DETECTOR.predict(features)[0]
-        # On peut aussi récupérer le score d'anomalie (plus c'est bas, plus c'est anormal)
-        score = OOD_DETECTOR.decision_function(features)[0]
+        pipeline = OOD_DETECTOR['pipeline']
+        threshold = OOD_DETECTOR['threshold']
 
-        is_poster = True if prediction == 1 else False
+        scaled_features = pipeline[:-1].transform(features)
+        distances, _ = pipeline[-1].kneighbors(scaled_features)
+        
+        max_distance = float(distances.max())
+
+        # 5. Décision basée sur le seuil
+        is_poster = True if max_distance <= threshold else False
         
         return jsonify({
             "is_poster": is_poster,
-            "anomaly_score": float(score),
+            "distance_score": max_distance,
+            "threshold": threshold,
             "message": "It is a poster!" if is_poster else "This doesn't look like a poster."
         })
 
