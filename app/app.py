@@ -60,8 +60,9 @@ def process_text(text):
     )
     return inputs['input_ids'].to(DEVICE), inputs['attention_mask'].to(DEVICE)
 
-# API Routes
 
+
+# API Routes
 @app.post("/predict_genre")
 async def predict_genre(request: PlotRequest):
     """

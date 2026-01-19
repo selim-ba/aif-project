@@ -15,7 +15,7 @@ CSV_FILE = 'movie_plots.csv'
 MODEL_NAME = 'distilbert-base-uncased'
 MAX_LEN = 256   # Max sequence length for plots
 BATCH_SIZE = 16
-EPOCHS = 2      # To increase if we want better results (on one of our PCs)
+EPOCHS = 2      # To increase if we want better results (only on one of our PCs with a good GPU, but time consuming)
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 2. Load and Preprocess Data
