@@ -4,7 +4,10 @@ import joblib
 
 from flask import Flask, jsonify, request
 from PIL import Image
+from pydantic import ValidationError
 
+from app.plot.model import predict_genre_logic
+from app.plot.schemas import PlotRequest
 from app.posters.model import load_trained_model # resnet model
 from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
 from app.validation.feature_extractor import FeatureExtractor #feature extraction model
@@ -116,6 +119,29 @@ def check_is_poster():
             "message": "It is a poster!" if is_poster else "This doesn't look like a poster."
         })
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+#NLP route
+@app.route("/predict_genre", methods=['POST'])
+def predict_genre():
+    """
+    Flask route to predict the genre of a movie based on its plot.
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "No JSON data"}), 400
+    try:
+        # Will raise error if plot is missing
+        req_data = PlotRequest(**data)
+    except ValidationError as e:
+        return jsonify(e.errors()), 422
+
+    try:
+        result = predict_genre_logic(req_data.plot)
+        return jsonify(result)
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

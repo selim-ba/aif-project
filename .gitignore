@@ -26,17 +26,12 @@ dataset/
 # =========================
 # Model weights & artifacts
 # =========================
+
 models/
-#models/*.pt
-#models/*.bin
-#models/*.pkl
-#models/*.npy
-#models/*.joblib
 
 # =========================
 # Logs / temporary
 # =========================
 *.log
 *.tmp
-
 *.tar.gz
