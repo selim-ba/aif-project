@@ -1,35 +1,26 @@
 import gradio as gr
 import requests
-import json 
 import os
 
-# --- Fonction de prédiction qui appelle votre API Flask ---
+# API base URL - uncomment the appropriate one
+API_URL = "http://127.0.0.1:8000"  # local testing
+# API_URL = "http://host.docker.internal:8000"  # docker on Mac/Windows
+# API_URL = "http://flask-api:8000"  # docker-compose / cloud
+
+
+# --- PART 1-2: Poster Genre Prediction ---
 def predict_poster_genre_gradio(image_file):
-    """
-    Fonction appelée par Gradio pour envoyer l'image à l'API Flask
-    et récupérer les prédictions.
-    """
+    """Send image to Flask API for genre prediction."""
     if image_file is None:
-        return "Veuillez télécharger une image.", []
+        return "Please upload an image.", []
 
     try:
-        # Ouvrir le fichier image en mode binaire
-        # 'rb' = read binary
         with open(image_file, 'rb') as f:
-            # Préparer le dictionnaire 'files' pour la requête requests
-            # La clé 'file' doit correspondre à ce que votre API Flask attend (request.files['file'])
             files = {'file': (os.path.basename(image_file), f, 'image/jpeg')}
-            
-            # Envoyer la requête POST à votre API Flask
-            #response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files) #local
-            #response = requests.post("http://host.docker.internal:8000/api/predict_poster_genre", files=files) #via docker
-            response = requests.post("http://flask-api:8000/api/predict_poster_genre", files=files) #via cloud
-            
-            # Vérifier si la requête a réussi (statut 200)
+            response = requests.post(f"{API_URL}/api/predict_poster_genre", files=files)
+
             if response.status_code == 200:
                 result = response.json()
-                
-                # Formatter les prédictions pour l'affichage Gradio
                 if "predictions" in result and isinstance(result["predictions"], list):
                     formatted_predictions = []
                     for pred in result["predictions"]:
@@ -40,57 +31,165 @@ def predict_poster_genre_gradio(image_file):
                 else:
                     return f"Unexpected API response: {result}", []
             else:
-                # Gérer les erreurs de l'API Flask (ex: 400 Bad Request, 500 Internal Server Error)
                 error_message = response.json().get("error", f"Unknown error ({response.status_code})")
                 return f"Flask API error: {error_message}", []
-
     except Exception as e:
         return f"An error occurred: {e}", []
-    
+
+
 def check_poster(image):
+    """Check if the uploaded image is a valid movie poster."""
     if image is None:
         return "Please upload an image."
-    
+
     try:
         with open(image, 'rb') as f:
             files = {'file': (os.path.basename(image), f, 'image/jpeg')}
-            #response = requests.post("http://127.0.0.1:8000/api/check_is_poster", files=files) #local
-            #response = requests.post("http://host.docker.internal:8000/api/check_is_poster", files=files) #via docker
-            response = requests.post("http://flask-api:8000/api/check_is_poster", files=files) #via cloud
+            response = requests.post(f"{API_URL}/api/check_is_poster", files=files)
 
             if response.status_code == 200:
                 data = response.json()
-                status = "✅ It's a poster !" if data['is_poster'] else "🚨 ALERT : This is not a poster."
-                return f"{status}\nAnomaly score : {data['anomaly_score']:.4f}"
+                status = "It's a poster!" if data['is_poster'] else "ALERT: This is not a poster."
+                return f"{status}\nAnomaly score: {data['anomaly_score']:.4f}"
             else:
-                return f"API Error : {response.text}"
+                return f"API Error: {response.text}"
     except Exception as e:
-        return f"Error : {str(e)}"
-    
-# --- Construction de l'interface avec Blocks ---
-with gr.Blocks(title="Movie Poster AI") as demo:
-    gr.Markdown("# 🎬 Movie Poster AI")
-    
-    with gr.Row():
-        with gr.Column():
-            input_image = gr.Image(type="filepath", label="Your Movie Poster Image")
-            
-            # --- Les deux boutons ---
-            with gr.Row():
-                btn_check = gr.Button("1. Check if it's a poster", variant="secondary")
-                btn_predict = gr.Button("2. Predict genre", variant="primary")
-        
-        with gr.Column():
-            # Sorties différentes pour chaque action
-            output_check = gr.Textbox(label="Validation Result")
-            output_predict = gr.JSON(label="Predictions Result")
+        return f"Error: {str(e)}"
 
-    # --- Connexion des événements ---
-    # Quand on clique sur "Vérifier", on appelle check_poster et on affiche dans output_check
-    btn_check.click(fn=check_poster, inputs=input_image, outputs=output_check)
+
+# --- PART 4: RAG Movie Chat (simplified, no Chatbot component) ---
+def chat_with_movies(message, conversation_history):
+    """Send a message to the RAG chat API and get a response."""
+    if not message.strip():
+        return conversation_history, "", "Please enter a message."
+
+    try:
+        response = requests.post(
+            f"{API_URL}/api/chat",
+            json={"query": message},
+            headers={"Content-Type": "application/json"},
+            timeout=120
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success"):
+                bot_response = data.get("response", "No response received.")
+            else:
+                bot_response = f"Error: {data.get('error', 'Unknown error')}"
+        elif response.status_code == 503:
+            bot_response = "RAG service not available. Please check if the model is loaded."
+        else:
+            bot_response = f"API Error ({response.status_code}): {response.text}"
+
+    except requests.exceptions.Timeout:
+        bot_response = "Request timed out. The model might be loading."
+    except requests.exceptions.ConnectionError:
+        bot_response = "Cannot connect to the API. Is the server running?"
+    except Exception as e:
+        bot_response = f"Error: {str(e)}"
+
+    # Update conversation history as plain text
+    new_history = conversation_history + f"\n\nYOU: {message}\n\nASSISTANT: {bot_response}"
+    return new_history.strip(), "", "Response received!"
+
+
+def reset_conversation():
+    """Reset the RAG conversation history."""
+    try:
+        requests.post(f"{API_URL}/api/reset_chat", timeout=10)
+        return "", "Conversation reset! Start a new chat."
+    except Exception as e:
+        return "", f"Error: {str(e)}"
+
+
+# --- Build the Gradio Interface with Tabs ---
+with gr.Blocks(title="Movie Poster AI Platform") as demo:
+    gr.Markdown("""
+    # Movie Poster AI Platform
     
-    # Quand on clique sur "Prédire", on appelle predict_genre et on affiche dans output_predict
-    btn_predict.click(fn=predict_poster_genre_gradio, inputs=input_image, outputs=output_predict)
+    Welcome to our AI-powered movie platform! Choose a feature below:
+    - **Poster Analysis**: Check if an image is a valid poster and predict its genre
+    - **Movie Discovery**: Chat with AI to find movies you'll love
+    """)
+
+    with gr.Tabs():
+        # ===== TAB 1: Poster Analysis (Parts 1-2) =====
+        with gr.TabItem("Poster Analysis"):
+            gr.Markdown("### Upload a movie poster to analyze")
+
+            with gr.Row():
+                with gr.Column():
+                    input_image = gr.Image(type="filepath", label="Upload Movie Poster")
+
+                    with gr.Row():
+                        btn_check = gr.Button("1. Check if it's a poster", variant="secondary")
+                        btn_predict = gr.Button("2. Predict genre", variant="primary")
+
+                with gr.Column():
+                    output_check = gr.Textbox(label="Validation Result", lines=3)
+                    output_predict = gr.JSON(label="Genre Predictions")
+
+            btn_check.click(fn=check_poster, inputs=input_image, outputs=output_check)
+            btn_predict.click(fn=predict_poster_genre_gradio, inputs=input_image, outputs=output_predict)
+
+        # ===== TAB 2: Movie Discovery Chat (Part 4) =====
+        with gr.TabItem("Movie Discovery"):
+            gr.Markdown("""
+            ### Chat with AI to discover movies
+            
+            Tell me what kind of movie you're in the mood for! You can:
+            - Describe a mood or theme: "I want something thrilling and suspenseful"
+            - Reference other movies: "Something like Inception but more romantic"
+            - Specify genres and preferences: "A comedy from the 2010s"
+            - Ask follow-up questions to refine recommendations
+            """)
+
+            # Use Textbox instead of Chatbot for compatibility
+            conversation_box = gr.Textbox(
+                label="Conversation",
+                lines=15,
+                max_lines=20,
+                interactive=False,
+                placeholder="Your conversation will appear here..."
+            )
+
+            with gr.Row():
+                msg_input = gr.Textbox(
+                    label="Your message",
+                    placeholder="Describe what kind of movie you want to watch...",
+                    lines=2,
+                    scale=4
+                )
+                send_btn = gr.Button("Send", variant="primary", scale=1)
+
+            with gr.Row():
+                clear_btn = gr.Button("Reset Conversation", variant="secondary")
+                status_text = gr.Textbox(label="Status", interactive=False, scale=2)
+
+            gr.Markdown("""
+            **Try these examples:**
+            - I want a sci-fi movie with a cyberpunk aesthetic
+            - Something funny for a family movie night
+            - A thriller with a strong female lead
+            - Movies about time travel with plot twists
+            """)
+
+            # Connect events
+            msg_input.submit(
+                chat_with_movies,
+                [msg_input, conversation_box],
+                [conversation_box, msg_input, status_text]
+            )
+            send_btn.click(
+                chat_with_movies,
+                [msg_input, conversation_box],
+                [conversation_box, msg_input, status_text]
+            )
+            clear_btn.click(reset_conversation, outputs=[conversation_box, status_text])
+
+    gr.Markdown("---\n*Built with CLIP, Annoy, and Transformers*")
+
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=False)

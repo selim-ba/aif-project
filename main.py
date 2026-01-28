@@ -5,111 +5,175 @@ import joblib
 from flask import Flask, jsonify, request
 from PIL import Image
 
-from app.posters.model import load_trained_model # resnet model
-from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
-from app.validation.feature_extractor import FeatureExtractor #feature extraction model
-from app.validation.inference_ood import get_features #feature extraction function
+from app.posters.model import load_trained_model  # resnet model
+from app.posters.inference import preprocess_image, predict_genres  # the inference pipeline
+from app.validation.feature_extractor import FeatureExtractor  # feature extraction model
+from app.validation.inference_ood import get_features  # feature extraction function
 
-app = Flask(__name__) #creation of the Flask application instance 
+# ===== PART 4: RAG IMPORTS =====
+from annoy import AnnoyIndex
+from app.rag.rag_model import RAG
+# ===============================
+
+app = Flask(__name__)  # creation of the Flask application instance
 
 # Loading paths
 PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
+DATA_DIR = PROJECT_ROOT / "data"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
 GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
 
 # Load classes : {"classes": ["action", "animation", "comedy", ...]}
 with GENRES_PATH.open("r", encoding="utf-8") as f:
     data = json.load(f)
-CLASSES = data["classes"] #so that : CLASSES = ['action', 'animation', 'comedy', ...]
+CLASSES = data["classes"]  # so that : CLASSES = ['action', 'animation', 'comedy', ...]
 
 # Loads model once when the server starts (so that it's not reloaded for every request)
 MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
 
-#load OOD model
+# load OOD model
 try:
     OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
-    print("Détecteur OOD chargé.")
+    print("OOD detector loaded.")
 except:
-    print("Attention: 'ood_detector.joblib' introuvable.")  
+    print("Warning: 'ood_detector.joblib' not found.")
     OOD_DETECTOR = None
 
 FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
 FEATURE_EXTRACTOR_MODEL.to("cpu")
 FEATURE_EXTRACTOR_MODEL.eval()
 
-# Sanity check, it should return {"status": "ok"} with HTTP code 200
+
+# ===== PART 4: RAG INITIALIZATION =====
+RAG_MODEL = None
+
+
+def init_rag():
+    """Initialize the RAG model. Called once at startup."""
+    global RAG_MODEL
+
+    # Paths for RAG resources (in data/ folder)
+    INDEX_PATH = DATA_DIR / "movies_clip.ann"
+    ID_MAP_PATH = DATA_DIR / "id_map.json"
+    MOVIES_PATH = DATA_DIR / "movies.json"
+
+    # Check if all required files exist
+    if not INDEX_PATH.exists():
+        print(f"Warning: RAG index not found at {INDEX_PATH}")
+        return False
+    if not ID_MAP_PATH.exists():
+        print(f"Warning: id_map.json not found at {ID_MAP_PATH}")
+        return False
+    if not MOVIES_PATH.exists():
+        print(f"Warning: movies.json not found at {MOVIES_PATH}")
+        return False
+
+    try:
+        # Load Annoy index
+        CLIP_DIM = 512  # CLIP ViT-B/32 dimension
+        annoy_index = AnnoyIndex(CLIP_DIM, 'angular')
+        annoy_index.load(str(INDEX_PATH))
+        print(f"Loaded Annoy index from {INDEX_PATH}")
+
+        # Load id_map
+        with open(ID_MAP_PATH, "r", encoding="utf-8") as f:
+            id_map = json.load(f)
+        print(f"Loaded id_map with {len(id_map)} entries")
+
+        # Load movies metadata
+        with open(MOVIES_PATH, "r", encoding="utf-8") as f:
+            movies_raw = json.load(f)
+        # Convert string keys to int keys
+        movies = {int(k): v for k, v in movies_raw.items()}
+        print(f"Loaded {len(movies)} movies metadata")
+
+        # RAG configuration
+        CONFIG = {
+            "FOUND_MODEL_PATH": "Qwen/Qwen3-0.6B",
+            "CLIP_MODEL_ID": "openai/clip-vit-base-patch32",
+            "SYSTEM_PROMPT": (
+                "You are a friendly movie recommendation assistant for a streaming platform. "
+                "Based on the retrieved movie information, recommend movies that match the user's request. "
+                "Give brief, helpful explanations for your recommendations. "
+                "If you need more details about what the user wants, ask clarifying questions. "
+                "Keep responses concise but informative."
+            ),
+        }
+
+        RAG_MODEL = RAG(CONFIG, annoy_index, id_map, movies)
+        print("RAG model initialized successfully!")
+        return True
+
+    except Exception as e:
+        print(f"Error initializing RAG: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# Initialize RAG at startup
+print("Initializing RAG model...")
+rag_initialized = init_rag()
+if not rag_initialized:
+    print("RAG model not available. Chat endpoints will return errors.")
+# ======================================
+
+
+# Sanity check
 @app.route("/health", methods=["GET"])
 def health():
-    """ health check."""
-    return jsonify({"status": "ok"}), 200
+    """health check."""
+    return jsonify({
+        "status": "ok",
+        "rag_available": RAG_MODEL is not None
+    }), 200
+
 
 # Main prediction route
 @app.route("/api/predict_poster_genre", methods=["POST"])
 def predict_poster_genre():
     """
     Accepts an image file and returns top-k predicted genres.
-
-    Expected request:
-      - Content-Type: multipart/form-data
-      - Field name: "file"
-
-    Response:
-      {
-        "predictions": [
-          {"genre": "comedy", "score": 0.73},
-          ...
-        ]
-      }
     """
     if "file" not in request.files:
-        """
-          Client must send :
-            multipart/form-data (http request format, tells the server that the request contains multiple parts, and some of them are binary files)
-            file =<image>
-        """
         return jsonify({"error": "No file uploaded. Expected field 'file'."}), 400
-
 
     file = request.files["file"]
     if file.filename == "":
-        return jsonify({"error": "Empty filename."}), 400 #prevens empty upload
+        return jsonify({"error": "Empty filename."}), 400
 
-    # guards against, non-image files, corrupt images or unsupported formats
     try:
         image = Image.open(file.stream).convert("RGB")
     except Exception as e:
         return jsonify({"error": f"Unable to read image: {e}"}), 400
 
-    # here we run the ML inference
-    tensor = preprocess_image(image) #applies training transforms
-    predictions = predict_genres(MODEL, tensor, CLASSES, top_k=3) #applies torch.softmax and returns top 3 best predictions
-    # labels are mapped with CLASSES
-    return jsonify({"predictions": predictions}), 200 #json format response
+    tensor = preprocess_image(image)
+    predictions = predict_genres(MODEL, tensor, CLASSES, top_k=3)
+    return jsonify({"predictions": predictions}), 200
 
-#OOD route
+
+# OOD route
 @app.route("/api/check_is_poster", methods=["POST"])
 def check_is_poster():
     """
-    Route pour vérifier si l'image est un poster.
+    Route to check if the image is a poster.
     """
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
-    
+
     file = request.files['file']
 
     if OOD_DETECTOR is None:
         return jsonify({"error": "OOD model not loaded"}), 500
 
     try:
-        features = get_features(file,FEATURE_EXTRACTOR_MODEL).reshape(1, -1) #reshaping to fit the model input
-        # 1 = Inlier (Poster), -1 = Outlier (Pas un poster)
+        features = get_features(file, FEATURE_EXTRACTOR_MODEL).reshape(1, -1)
         prediction = OOD_DETECTOR.predict(features)[0]
-        # On peut aussi récupérer le score d'anomalie (plus c'est bas, plus c'est anormal)
         score = OOD_DETECTOR.decision_function(features)[0]
 
         is_poster = True if prediction == 1 else False
-        
+
         return jsonify({
             "is_poster": is_poster,
             "anomaly_score": float(score),
@@ -119,7 +183,78 @@ def check_is_poster():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    # For local dev only
-    app.run(host="0.0.0.0", port=8000, debug=True) 
 
+# ===== PART 4: RAG CHAT ROUTES =====
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    """
+    RAG-powered movie recommendation chat.
+
+    Expected request (JSON):
+      {"query": "I want a sci-fi movie like Blade Runner"}
+
+    Response:
+      {"response": "Based on your interest...", "success": true}
+    """
+    if RAG_MODEL is None:
+        return jsonify({
+            "error": "RAG model not available. Check server logs.",
+            "success": False
+        }), 503
+
+    data = request.get_json()
+    if not data or "query" not in data:
+        return jsonify({
+            "error": "Missing 'query' field in request body.",
+            "success": False
+        }), 400
+
+    query = data["query"].strip()
+    if not query:
+        return jsonify({
+            "error": "Query cannot be empty.",
+            "success": False
+        }), 400
+
+    try:
+        response = RAG_MODEL.ask(query)
+        return jsonify({
+            "response": response,
+            "success": True
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "error": f"Error generating response: {str(e)}",
+            "success": False
+        }), 500
+
+
+@app.route("/api/reset_chat", methods=["POST"])
+def reset_chat():
+    """
+    Reset the conversation history.
+    """
+    if RAG_MODEL is None:
+        return jsonify({
+            "error": "RAG model not available.",
+            "success": False
+        }), 503
+
+    try:
+        RAG_MODEL.reset_chat()
+        return jsonify({
+            "message": "Conversation reset successfully.",
+            "success": True
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "error": f"Error resetting chat: {str(e)}",
+            "success": False
+        }), 500
+
+# ===================================
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=True)
