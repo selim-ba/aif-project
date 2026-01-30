@@ -5,17 +5,17 @@ import joblib
 from flask import Flask, jsonify, request
 from PIL import Image
 
-from app.posters.model import load_trained_model  # resnet model
-from app.posters.inference import preprocess_image, predict_genres  # the inference pipeline
-from app.validation.feature_extractor import FeatureExtractor  # feature extraction model
-from app.validation.inference_ood import get_features  # feature extraction function
+from app.posters.model import load_trained_model
+from app.posters.inference import preprocess_image, predict_genres
+from app.validation.feature_extractor import FeatureExtractor
+from app.validation.inference_ood import get_features
 
 # ===== PART 4: RAG IMPORTS =====
 from annoy import AnnoyIndex
 from app.rag.rag_model import RAG
 # ===============================
 
-app = Flask(__name__)  # creation of the Flask application instance
+app = Flask(__name__)
 
 # Loading paths
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -24,15 +24,15 @@ DATA_DIR = PROJECT_ROOT / "data"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
 GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
 
-# Load classes : {"classes": ["action", "animation", "comedy", ...]}
+# Load classes
 with GENRES_PATH.open("r", encoding="utf-8") as f:
     data = json.load(f)
-CLASSES = data["classes"]  # so that : CLASSES = ['action', 'animation', 'comedy', ...]
+CLASSES = data["classes"]
 
-# Loads model once when the server starts (so that it's not reloaded for every request)
+# Load Classifier Model
 MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
 
-# load OOD model
+# Load OOD model
 try:
     OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
     print("OOD detector loaded.")
@@ -48,17 +48,16 @@ FEATURE_EXTRACTOR_MODEL.eval()
 # ===== PART 4: RAG INITIALIZATION =====
 RAG_MODEL = None
 
-
 def init_rag():
     """Initialize the RAG model. Called once at startup."""
     global RAG_MODEL
 
-    # Paths for RAG resources (in data/ folder)
+    # Paths for RAG resources
     INDEX_PATH = DATA_DIR / "movies_clip.ann"
     ID_MAP_PATH = DATA_DIR / "id_map.json"
     MOVIES_PATH = DATA_DIR / "movies.json"
 
-    # Check if all required files exist
+    # Check if files exist
     if not INDEX_PATH.exists():
         print(f"Warning: RAG index not found at {INDEX_PATH}")
         return False
@@ -70,34 +69,34 @@ def init_rag():
         return False
 
     try:
-        # Load Annoy index
-        CLIP_DIM = 512  # CLIP ViT-B/32 dimension
+        # 1. Load Annoy index
+        CLIP_DIM = 512
         annoy_index = AnnoyIndex(CLIP_DIM, 'angular')
         annoy_index.load(str(INDEX_PATH))
         print(f"Loaded Annoy index from {INDEX_PATH}")
 
-        # Load id_map
+        # 2. Load id_map AND CONVERT KEYS TO INT
+        # AJOUT CORRECTIF : On convertit les clés str en int pour correspondre à Annoy
         with open(ID_MAP_PATH, "r", encoding="utf-8") as f:
-            id_map = json.load(f)
-        print(f"Loaded id_map with {len(id_map)} entries")
+            id_map_raw = json.load(f)
+        id_map = {int(k): v for k, v in id_map_raw.items()}
+        print(f"Loaded id_map with {len(id_map)} entries (keys converted to int)")
 
-        # Load movies metadata
+        # 3. Load movies metadata AND CONVERT KEYS TO INT
+        # CORRECTIF (Déjà présent mais critique) :
         with open(MOVIES_PATH, "r", encoding="utf-8") as f:
             movies_raw = json.load(f)
-        # Convert string keys to int keys
         movies = {int(k): v for k, v in movies_raw.items()}
-        print(f"Loaded {len(movies)} movies metadata")
+        print(f"Loaded {len(movies)} movies metadata (keys converted to int)")
 
         # RAG configuration
         CONFIG = {
             "FOUND_MODEL_PATH": "Qwen/Qwen3-0.6B",
             "CLIP_MODEL_ID": "openai/clip-vit-base-patch32",
             "SYSTEM_PROMPT": (
-                "You are a friendly movie recommendation assistant for a streaming platform. "
-                "Based on the retrieved movie information, recommend movies that match the user's request. "
-                "Give brief, helpful explanations for your recommendations. "
-                "If you need more details about what the user wants, ask clarifying questions. "
-                "Keep responses concise but informative."
+                "You are a friendly movie recommendation assistant. "
+                "Based on the retrieved context, recommend relevant movies. "
+                "Do not invent movies. If the context is empty, say you don't know."
             ),
         }
 
@@ -123,7 +122,6 @@ if not rag_initialized:
 # Sanity check
 @app.route("/health", methods=["GET"])
 def health():
-    """health check."""
     return jsonify({
         "status": "ok",
         "rag_available": RAG_MODEL is not None
@@ -133,11 +131,8 @@ def health():
 # Main prediction route
 @app.route("/api/predict_poster_genre", methods=["POST"])
 def predict_poster_genre():
-    """
-    Accepts an image file and returns top-k predicted genres.
-    """
     if "file" not in request.files:
-        return jsonify({"error": "No file uploaded. Expected field 'file'."}), 400
+        return jsonify({"error": "No file uploaded."}), 400
 
     file = request.files["file"]
     if file.filename == "":
@@ -156,9 +151,6 @@ def predict_poster_genre():
 # OOD route
 @app.route("/api/check_is_poster", methods=["POST"])
 def check_is_poster():
-    """
-    Route to check if the image is a poster.
-    """
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
 
@@ -171,7 +163,6 @@ def check_is_poster():
         features = get_features(file, FEATURE_EXTRACTOR_MODEL).reshape(1, -1)
         prediction = OOD_DETECTOR.predict(features)[0]
         score = OOD_DETECTOR.decision_function(features)[0]
-
         is_poster = True if prediction == 1 else False
 
         return jsonify({
@@ -188,72 +179,33 @@ def check_is_poster():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """
-    RAG-powered movie recommendation chat.
-
-    Expected request (JSON):
-      {"query": "I want a sci-fi movie like Blade Runner"}
-
-    Response:
-      {"response": "Based on your interest...", "success": true}
-    """
     if RAG_MODEL is None:
-        return jsonify({
-            "error": "RAG model not available. Check server logs.",
-            "success": False
-        }), 503
+        return jsonify({"error": "RAG model not available.", "success": False}), 503
 
     data = request.get_json()
     if not data or "query" not in data:
-        return jsonify({
-            "error": "Missing 'query' field in request body.",
-            "success": False
-        }), 400
+        return jsonify({"error": "Missing 'query'.", "success": False}), 400
 
     query = data["query"].strip()
     if not query:
-        return jsonify({
-            "error": "Query cannot be empty.",
-            "success": False
-        }), 400
+        return jsonify({"error": "Query cannot be empty.", "success": False}), 400
 
     try:
         response = RAG_MODEL.ask(query)
-        return jsonify({
-            "response": response,
-            "success": True
-        }), 200
+        return jsonify({"response": response, "success": True}), 200
     except Exception as e:
-        return jsonify({
-            "error": f"Error generating response: {str(e)}",
-            "success": False
-        }), 500
+        return jsonify({"error": f"Error: {str(e)}", "success": False}), 500
 
 
 @app.route("/api/reset_chat", methods=["POST"])
 def reset_chat():
-    """
-    Reset the conversation history.
-    """
     if RAG_MODEL is None:
-        return jsonify({
-            "error": "RAG model not available.",
-            "success": False
-        }), 503
-
+        return jsonify({"error": "RAG model not available.", "success": False}), 503
     try:
         RAG_MODEL.reset_chat()
-        return jsonify({
-            "message": "Conversation reset successfully.",
-            "success": True
-        }), 200
+        return jsonify({"message": "Conversation reset.", "success": True}), 200
     except Exception as e:
-        return jsonify({
-            "error": f"Error resetting chat: {str(e)}",
-            "success": False
-        }), 500
-
-# ===================================
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 if __name__ == "__main__":

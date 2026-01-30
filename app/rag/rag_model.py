@@ -34,17 +34,41 @@ class RAG:
         self.foundation_model.reset()
 
     def _retrieve(self, query: str, top_k: int = 30) -> List[Tuple[int, str, float]]:
+        # 1. Encodage de la requête (Conversion Tensor -> Numpy explicite)
         q = self.embedding_model.get_text_embeddings([query])[0]
-        q = q.detach().cpu().numpy().astype(np.float32)
+        # Sécurité pour Annoy : détacher du GPU et convertir en numpy float32
+        if hasattr(q, "detach"):
+             q = q.detach().cpu().numpy()
+        q = q.astype(np.float32)
         
+        # 2. Recherche Annoy
         ids, dists = self.annoy.get_nns_by_vector(q, top_k, include_distances=True)
         
         hits = []
         for annoy_id, dist in zip(ids, dists):
-            meta = self.id_map[str(annoy_id)]  # Use string key
-            movie_id = meta["row_index"]
+            # A. Récupération des métadonnées (Gérer Clé Int vs Str)
+            # id_map keys sont souvent des strings dans le JSON ("0", "1"...)
+            meta = self.id_map.get(annoy_id) or self.id_map.get(str(annoy_id))
+            
+            if not meta:
+                continue # ID Annoy orphelin (ne devrait pas arriver)
+
+            movie_id = meta["row_index"] # C'est un int (ex: 105)
             modality = meta["modality"]
+
+            # B. Récupération du film (LE CORRECTIF EST ICI)
+            # On cherche d'abord avec l'ID tel quel, puis en string, puis en int
+            movie_data = self.movies.get(movie_id)
+            if not movie_data:
+                movie_data = self.movies.get(str(movie_id))
+            if not movie_data:
+                # Si toujours rien, c'est que l'ID n'est pas dans la base movies
+                continue 
+
+            # C. On a trouvé le film, on l'ajoute
+            # Note: on garde movie_id tel qu'il est dans meta pour la cohérence
             hits.append((movie_id, modality, float(dist)))
+            
         return hits
 
     def _dedupe_movies(
