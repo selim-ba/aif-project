@@ -21,9 +21,9 @@ def predict_poster_genre_gradio(image_file):
             files = {'file': (os.path.basename(image_file), f, 'image/jpeg')}
             
             # Envoyer la requête POST à votre API Flask
-            response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files) #local
+            #response = requests.post("http://127.0.0.1:8000/api/predict_poster_genre", files=files) #local
             #response = requests.post("http://host.docker.internal:8000/api/predict_poster_genre", files=files) #via docker
-            #response = requests.post("http://flask-api:8000/api/predict_poster_genre", files=files) #via cloud
+            response = requests.post("http://flask-api:8000/api/predict_poster_genre", files=files) #via cloud
             
             # Vérifier si la requête a réussi (statut 200)
             if response.status_code == 200:
@@ -54,9 +54,11 @@ def check_poster(image):
     try:
         with open(image, 'rb') as f:
             files = {'file': (os.path.basename(image), f, 'image/jpeg')}
-            response = requests.post("http://127.0.0.1:8000/api/check_is_poster", files=files) #local
+            #response = requests.post("http://127.0.0.1:8000/api/check_is_poster", files=files) #local
             #response = requests.post("http://host.docker.internal:8000/api/check_is_poster", files=files) #via docker
-            #response = requests.post("http://flask-api:8000/api/check_is_poster", files=files) #via cloud
+            response = requests.post("http://flask-api:8000/api/check_is_poster", files=files) #via cloud
+            print(f"DEBUG: Status Code = {response.status_code}")
+            print(f"DEBUG: Response Body = {response.text[:200]}")
             if response.status_code == 200:
                 data = response.json()
                 return {
@@ -75,9 +77,9 @@ def predict_plot_genre(plot):
         return {"Error": "Please enter a plot summary."}
     
     try:
-        response = requests.post("http://localhost:8000/api/plot_predict_genre",json={"plot": plot})
-        #response = requests.post("http://host.docker.internal:8000/api/check_is_poster", files=files) #via docker
-        #response = requests.post("http://flask-api:8000/api/check_is_poster", files=files) #via cloud
+        #response = requests.post("http://localhost:8000/api/plot_predict_genre",json={"plot": plot})
+        #response = requests.post("http://host.docker.internal:8000/api/plot_predict_genre", files=files) #via docker
+        response = requests.post("http://flask-api:8000/api/plot_predict_genre",json={"plot": plot}) #via cloud
         return response.json()
     except Exception as e:
         return {"error": str(e)}
