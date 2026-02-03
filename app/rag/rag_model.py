@@ -1,113 +1,161 @@
-import numpy as np
-from typing import Dict, List, Tuple, Optional
-
-from app.rag.foundation_model import FoundationModel
-from app.rag.embedding_model import EmbeddingModel
+import torch
+import re
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import CLIPProcessor, CLIPModel
 
 class RAG:
-    def __init__(
-        self,
-        CONFIG: dict,
-        annoy_index,                     # AnnoyIndex already built/loaded
-        id_map: Dict[int, Tuple[int,str]],# annoy_id -> (movie_id, "plot"/"poster")
-        movies: Dict[int, dict],          # movie_id -> metadata (title, plot, poster_url/path, etc.)
-    ):
-        # Chat model (your updated chat-capable FoundationModel)
-        self.foundation_model = FoundationModel(
-            FOUND_MODEL_PATH=CONFIG["FOUND_MODEL_PATH"],
-            SYSTEM_PROMPT=CONFIG.get("SYSTEM_PROMPT", None) or
-                "You are a movie recommendation assistant. Ask clarifying questions when needed "
-                "and recommend a small set of movies with brief reasons."
-        )
-
-        # CLIP embedder (your final EmbeddingModel)
-        self.embedding_model = EmbeddingModel(
-            model_id=CONFIG.get("CLIP_MODEL_ID", "openai/clip-vit-base-patch32")
-        )
-
-        # Single Annoy index + mapping
-        self.annoy = annoy_index
+    def __init__(self, config, index, id_map, brochure):
+        self.index = index
         self.id_map = id_map
-        self.movies = movies
+        self.brochure = brochure
+        self.config = config
+        
+        # 1. SETUP HARDWARE
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"⚡ RAG Inference running on: {self.device.upper()}")
+
+        # 2. LLM (Qwen)
+        print("   [LLM] Loading Qwen...")
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(config["FOUND_MODEL_PATH"])
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                
+            self.model = AutoModelForCausalLM.from_pretrained(
+                config["FOUND_MODEL_PATH"], 
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                device_map="auto"
+            )
+            self.model.eval()
+        except Exception as e:
+            print(f"❌ Error loading LLM: {e}")
+            raise e
+
+        # 3. CLIP
+        print(f"   [Embedding] Loading CLIP on {self.device}...")
+        try:
+            self.clip_model = CLIPModel.from_pretrained(config["CLIP_MODEL_ID"]).to(self.device)
+            self.clip_processor = CLIPProcessor.from_pretrained(config["CLIP_MODEL_ID"])
+            self.clip_model.eval()
+        except Exception as e:
+            print(f"❌ Error loading CLIP: {e}")
+            raise e
+
+        self.chat_history = []
+
+    def retrieve(self, query, n_results=5):
+        inputs = self.clip_processor(text=[query], return_tensors="pt", padding=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self.clip_model.get_text_features(**inputs)
+            if isinstance(outputs, torch.Tensor):
+                text_features = outputs
+            elif hasattr(outputs, 'pooler_output'):
+                text_features = outputs.pooler_output
+            elif hasattr(outputs, 'text_embeds'):
+                text_features = outputs.text_embeds
+            else:
+                text_features = outputs[0]
+            
+            text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
+            query_vector = text_features.cpu().detach().numpy()[0]
+
+        try:
+            indices, distances = self.index.get_nns_by_vector(query_vector, n_results, include_distances=True)
+        except Exception as e:
+            print(f"⚠️ Annoy Index Error: {e}")
+            return []
+
+        results = []
+        for idx, dist in zip(indices, distances):
+            raw_key = self.id_map.get(idx)
+            brochure_key = raw_key
+            if isinstance(raw_key, dict):
+                brochure_key = list(raw_key.values())[0]
+
+            if brochure_key in self.brochure:
+                results.append(self.brochure[brochure_key])
+            elif str(brochure_key) in self.brochure:
+                results.append(self.brochure[str(brochure_key)])
+            elif isinstance(brochure_key, str) and brochure_key.isdigit() and int(brochure_key) in self.brochure:
+                results.append(self.brochure[int(brochure_key)])
+        return results
+
+    def ask(self, query):
+        retrieved_docs = self.retrieve(query)
+        
+        if not retrieved_docs:
+            return "I couldn't find any movies matching your description."
+
+        # Construction du contexte (On garde l'image ref au cas où il se trompe)
+        context_pieces = []
+        for doc in retrieved_docs:
+            plot = doc.get('plot') or doc.get('movie_plot') or ""
+            genre = doc.get('category') or doc.get('movie_category') or "Unknown"
+            ref = doc.get('poster_path') or str(doc.get('id', 'Unknown'))
+            
+            context_pieces.append(f"--- CANDIDATE MOVIE ---\n[Image Ref: {ref}]\nGenre: {genre}\nPlot: {plot[:600]}")
+        
+        context_text = "\n".join(context_pieces)
+
+        system_prompt = self.config["SYSTEM_PROMPT"]
+        
+        # --- VOTRE PROMPT ---
+        user_prompt = f"""You are a movie database assistant.
+User Request: "{query}"
+
+Here are the best matches found (WARNING: Titles are missing from the database, but they may be extracted from plots):
+{context_text}
+
+INSTRUCTIONS:
+1. Select the best movie based on the plot and try to come up with a title.
+2. Be honest: State clearly that you don't have the exact title.
+3. Describe the plot and why it fits.
+
+### EXAMPLE OF ANSWER FORMAT:
+"Since the titles are missing in my database, I cannot give you the exact name, but based on the plot, it looks like [Title Guess].
+This movie fits your request because..."
+
+Assistant:"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.device)
+
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                model_inputs.input_ids,
+                attention_mask=model_inputs.attention_mask,
+                max_new_tokens=400, 
+                temperature=0.5, # Température moyenne : on veut qu'il ose deviner un peu
+                do_sample=True,
+                top_k=50,
+                top_p=0.95,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+        
+        input_length = model_inputs.input_ids.shape[1]
+        new_tokens = generated_ids[:, input_length:]
+        raw_response = self.tokenizer.batch_decode(new_tokens, skip_special_tokens=True)[0]
+        
+        # --- NETTOYAGE ---
+        clean_response = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
+        if '<think>' in clean_response:
+             clean_response = clean_response.split('<think>')[0]
+        
+        clean_response = clean_response.strip()
+
+        # Fallback
+        if not clean_response:
+             clean_response = "I found a matching movie but I cannot determine the title."
+
+        self.chat_history.append((query, clean_response))
+        return clean_response
 
     def reset_chat(self):
-        self.foundation_model.reset()
-
-    def _retrieve(self, query: str, top_k: int = 30) -> List[Tuple[int, str, float]]:
-        # 1. Encodage de la requête (Conversion Tensor -> Numpy explicite)
-        q = self.embedding_model.get_text_embeddings([query])[0]
-        # Sécurité pour Annoy : détacher du GPU et convertir en numpy float32
-        if hasattr(q, "detach"):
-             q = q.detach().cpu().numpy()
-        q = q.astype(np.float32)
-        
-        # 2. Recherche Annoy
-        ids, dists = self.annoy.get_nns_by_vector(q, top_k, include_distances=True)
-        
-        hits = []
-        for annoy_id, dist in zip(ids, dists):
-            # A. Récupération des métadonnées (Gérer Clé Int vs Str)
-            # id_map keys sont souvent des strings dans le JSON ("0", "1"...)
-            meta = self.id_map.get(annoy_id) or self.id_map.get(str(annoy_id))
-            
-            if not meta:
-                continue # ID Annoy orphelin (ne devrait pas arriver)
-
-            movie_id = meta["row_index"] # C'est un int (ex: 105)
-            modality = meta["modality"]
-
-            # B. Récupération du film (LE CORRECTIF EST ICI)
-            # On cherche d'abord avec l'ID tel quel, puis en string, puis en int
-            movie_data = self.movies.get(movie_id)
-            if not movie_data:
-                movie_data = self.movies.get(str(movie_id))
-            if not movie_data:
-                # Si toujours rien, c'est que l'ID n'est pas dans la base movies
-                continue 
-
-            # C. On a trouvé le film, on l'ajoute
-            # Note: on garde movie_id tel qu'il est dans meta pour la cohérence
-            hits.append((movie_id, modality, float(dist)))
-            
-        return hits
-
-    def _dedupe_movies(
-        self,
-        hits: List[Tuple[int, str, float]],
-        max_movies: int = 8
-    ) -> List[Tuple[int, float, List[str]]]:
-        """
-        Dedupe plot/poster hits into per-movie score:
-        returns list of (movie_id, best_dist, modalities_seen)
-        """
-        best_dist = {}
-        mods = {}
-        for movie_id, modality, dist in hits:
-            if (movie_id not in best_dist) or (dist < best_dist[movie_id]):
-                best_dist[movie_id] = dist
-            mods.setdefault(movie_id, set()).add(modality)
-
-        ranked = sorted(best_dist.items(), key=lambda x: x[1])[:max_movies]
-        return [(mid, d, sorted(list(mods[mid]))) for mid, d in ranked]
-
-    def _build_context(self, ranked_movies) -> List[str]:
-        """Turn retrieved movies into context strings for the LLM."""
-        ctx = []
-        for movie_id, dist, modalities in ranked_movies:
-            m = self.movies[movie_id]
-            ctx.append(
-                f"Title: {m.get('title','')}\n"
-                f"Plot: {m.get('plot','')}\n"
-                f"Poster: {m.get('poster_url','') or m.get('poster_path','')}\n"
-                f"Matched via: {', '.join(modalities)}\n"
-                f"(annoy_dist={dist:.4f})"
-            )
-        return ctx
-
-    def ask(self, query: str, top_k: int = 30, max_movies: int = 8) -> str:
-        hits = self._retrieve(query, top_k=top_k)
-        ranked = self._dedupe_movies(hits, max_movies=max_movies)
-        context = self._build_context(ranked)
-
-        # Multi-turn refinement happens automatically via FoundationModel.history
-        return self.foundation_model.chat(query, retrieved_context=context)
+        self.chat_history = []

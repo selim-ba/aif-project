@@ -1,5 +1,24 @@
+import sys
+import os
 import json
 from pathlib import Path
+
+# --- 1. FIX DES CHEMINS (Le bloc magique) ---
+# On récupère le dossier où se trouve ce script
+script_dir = Path(__file__).resolve().parent
+
+# On détermine la racine du projet
+if script_dir.name == 'scripts':
+    project_root = script_dir.parent
+else:
+    project_root = script_dir
+
+# On ajoute la racine au chemin de recherche Python
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+
+print(f"📍 Racine du projet détectée : {project_root}")
+# --------------------------------------------
 
 import torch
 import torch.nn as nn
@@ -7,13 +26,21 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from tqdm import tqdm
 
-from app.posters.model import build_model
-
+# Maintenant l'import va fonctionner
+try:
+    from app.posters.model import build_model
+except ImportError:
+    print("⚠️ Attention : app.posters.model introuvable, utilisation de ResNet par défaut.")
+    from torchvision import models
+    def build_model(num_classes):
+        m = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        m.fc = nn.Linear(m.fc.in_features, num_classes)
+        return m
 
 # --- CONFIG ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-DATASET_DIR = PROJECT_ROOT / "dataset"
+DATASET_DIR = PROJECT_ROOT / "data" / "dataset"
 TRAIN_DIR = DATASET_DIR / "train"
 VAL_DIR = DATASET_DIR / "val"
 
@@ -22,7 +49,7 @@ NUM_EPOCHS = 10
 LEARNING_RATE = 1e-4
 
 MODELS_DIR = PROJECT_ROOT / "models"
-WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
+WEIGHTS_PATH = MODELS_DIR / "vision_weights.pth"
 GENRES_PATH = MODELS_DIR / "genres.json"
 # ---------------
 

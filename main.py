@@ -1,212 +1,243 @@
 from pathlib import Path
 import json
 import joblib
+import pickle
+import torch
+import numpy as np
+import sys
+
+# Ajout de la racine au path pour les imports locaux
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from flask import Flask, jsonify, request
 from PIL import Image
 
+# Imports Vision
 from app.posters.model import load_trained_model
 from app.posters.inference import preprocess_image, predict_genres
 from app.validation.feature_extractor import FeatureExtractor
-from app.validation.inference_ood import get_features
 
-# ===== PART 4: RAG IMPORTS =====
+# Imports NLP (Part 3)
+from transformers import DistilBertTokenizerFast
+from app.nlp.nlp_model import BertClf
+
+# Imports RAG (Part 4)
 from annoy import AnnoyIndex
 from app.rag.rag_model import RAG
-# ===============================
 
 app = Flask(__name__)
 
-# Loading paths
-PROJECT_ROOT = Path(__file__).resolve().parent
+# --- CONFIGURATION DES CHEMINS ---
 MODELS_DIR = PROJECT_ROOT / "models"
 DATA_DIR = PROJECT_ROOT / "data"
-WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
-GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
 
-# Load classes
-with GENRES_PATH.open("r", encoding="utf-8") as f:
-    data = json.load(f)
-CLASSES = data["classes"]
+# ==============================================================================
+# CONFIGURATION : TOUT EST DANS MODELS/
+# ==============================================================================
 
-# Load Classifier Model
-MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
+# 1. VISION
+VISION_WEIGHTS_PATH = MODELS_DIR / "vision_weights.pth"
+VISION_CLASSES_PATH = MODELS_DIR / "genres.json"
 
-# Load OOD model
+# 2. NLP (Part 3)
+NLP_WEIGHTS_PATH = MODELS_DIR / "part3_nlp_weights.pth"
+NLP_CLASSES_PATH = MODELS_DIR / "part3_classes.json"
+
+# 3. RAG (Part 4)
+RAG_INDEX_PATH = MODELS_DIR / "part4_rag_index.ann"
+RAG_MAP_PATH = MODELS_DIR / "part4_rag_map.json"
+RAG_BROCHURE_PATH = MODELS_DIR / "part4_rag_brochure.pkl"
+
+
+# --- CHARGEMENT DES CLASSES VISION ---
+CLASSES = []
+if VISION_CLASSES_PATH.exists():
+    with VISION_CLASSES_PATH.open("r", encoding="utf-8") as f:
+        CLASSES = json.load(f)["classes"]
+else:
+    # Fallback sur l'ancien emplacement
+    OLD_GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
+    if OLD_GENRES_PATH.exists():
+        with OLD_GENRES_PATH.open("r", encoding="utf-8") as f:
+            CLASSES = json.load(f)["classes"]
+
+# ==============================================================================
+# 1. CHARGEMENT VISION (ResNet)
+# ==============================================================================
+MODEL = None
+FEATURE_EXTRACTOR_MODEL = None
+OOD_DETECTOR = None
+
 try:
-    OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
-    print("OOD detector loaded.")
-except:
-    print("Warning: 'ood_detector.joblib' not found.")
-    OOD_DETECTOR = None
+    if VISION_WEIGHTS_PATH.exists():
+        print(f"👁️ Chargement Vision ({VISION_WEIGHTS_PATH.name})...")
+        MODEL = load_trained_model(str(VISION_WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
+        
+        FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
+        FEATURE_EXTRACTOR_MODEL.to("cpu")
+        FEATURE_EXTRACTOR_MODEL.eval()
+        
+        try:
+            OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
+        except:
+            OOD_DETECTOR = None
+            
+        print("✅ Vision chargée.")
+    else:
+        print(f"⚠️ Vision ignorée : '{VISION_WEIGHTS_PATH}' introuvable dans models/.")
+except Exception as e:
+    print(f"⚠️ Erreur chargement Vision : {e}")
 
-FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
-FEATURE_EXTRACTOR_MODEL.to("cpu")
-FEATURE_EXTRACTOR_MODEL.eval()
+
+# ==============================================================================
+# 2. CHARGEMENT NLP (Part 3 - DistilBERT)
+# ==============================================================================
+NLP_MODEL = None
+NLP_TOKENIZER = None
+NLP_CLASSES = {}
+
+try:
+    if NLP_WEIGHTS_PATH.exists() and NLP_CLASSES_PATH.exists():
+        print(f"🧠 Chargement NLP Part 3 ({NLP_WEIGHTS_PATH.name})...")
+        
+        with open(NLP_CLASSES_PATH, "r", encoding="utf-8") as f:
+            NLP_CLASSES = json.load(f)
+            NLP_CLASSES = {int(k): v for k, v in NLP_CLASSES.items()}
+
+        NLP_MODEL = BertClf('distilbert-base-uncased', num_labels=len(NLP_CLASSES))
+        NLP_MODEL.load_state_dict(torch.load(NLP_WEIGHTS_PATH, map_location=torch.device('cpu')))
+        NLP_MODEL.to("cpu")
+        NLP_MODEL.eval()
+        
+        NLP_TOKENIZER = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+        print("✅ NLP Part 3 chargé.")
+    else:
+        print(f"⚠️ NLP ignoré : Fichiers 'part3_...' introuvables dans models/.")
+except Exception as e:
+    print(f"⚠️ Erreur NLP: {e}")
 
 
-# ===== PART 4: RAG INITIALIZATION =====
+# ==============================================================================
+# 3. CHARGEMENT RAG (Part 4 - Qwen + CLIP + Annoy)
+# ==============================================================================
 RAG_MODEL = None
 
 def init_rag():
-    """Initialize the RAG model. Called once at startup."""
     global RAG_MODEL
-
-    # Paths for RAG resources
-    INDEX_PATH = DATA_DIR / "movies_clip.ann"
-    ID_MAP_PATH = DATA_DIR / "id_map.json"
-    MOVIES_PATH = DATA_DIR / "movies.json"
-
-    # Check if files exist
-    if not INDEX_PATH.exists():
-        print(f"Warning: RAG index not found at {INDEX_PATH}")
-        return False
-    if not ID_MAP_PATH.exists():
-        print(f"Warning: id_map.json not found at {ID_MAP_PATH}")
-        return False
-    if not MOVIES_PATH.exists():
-        print(f"Warning: movies.json not found at {MOVIES_PATH}")
+    missing = []
+    if not RAG_INDEX_PATH.exists(): missing.append(RAG_INDEX_PATH.name)
+    if not RAG_BROCHURE_PATH.exists(): missing.append(RAG_BROCHURE_PATH.name)
+    
+    if missing:
+        print(f"❌ RAG Erreur : Fichiers manquants dans models/ : {missing}")
         return False
 
     try:
-        # 1. Load Annoy index
-        CLIP_DIM = 512
-        annoy_index = AnnoyIndex(CLIP_DIM, 'angular')
-        annoy_index.load(str(INDEX_PATH))
-        print(f"Loaded Annoy index from {INDEX_PATH}")
+        print("🤖 Initialisation RAG Part 4...")
+        
+        annoy_index = AnnoyIndex(512, 'angular')
+        annoy_index.load(str(RAG_INDEX_PATH))
 
-        # 2. Load id_map AND CONVERT KEYS TO INT
-        # AJOUT CORRECTIF : On convertit les clés str en int pour correspondre à Annoy
-        with open(ID_MAP_PATH, "r", encoding="utf-8") as f:
-            id_map_raw = json.load(f)
-        id_map = {int(k): v for k, v in id_map_raw.items()}
-        print(f"Loaded id_map with {len(id_map)} entries (keys converted to int)")
+        with open(RAG_MAP_PATH, "r", encoding="utf-8") as f:
+            id_map = {int(k): v for k, v in json.load(f).items()}
 
-        # 3. Load movies metadata AND CONVERT KEYS TO INT
-        # CORRECTIF (Déjà présent mais critique) :
-        with open(MOVIES_PATH, "r", encoding="utf-8") as f:
-            movies_raw = json.load(f)
-        movies = {int(k): v for k, v in movies_raw.items()}
-        print(f"Loaded {len(movies)} movies metadata (keys converted to int)")
+        with open(RAG_BROCHURE_PATH, "rb") as f:
+            movies = pickle.load(f)
 
-        # RAG configuration
         CONFIG = {
             "FOUND_MODEL_PATH": "Qwen/Qwen3-0.6B",
             "CLIP_MODEL_ID": "openai/clip-vit-base-patch32",
-            "SYSTEM_PROMPT": (
-                "You are a friendly movie recommendation assistant. "
-                "Based on the retrieved context, recommend relevant movies. "
-                "Do not invent movies. If the context is empty, say you don't know."
-            ),
+            "SYSTEM_PROMPT": "You are a helpful movie assistant..."
         }
 
         RAG_MODEL = RAG(CONFIG, annoy_index, id_map, movies)
-        print("RAG model initialized successfully!")
+        print("✅ RAG Part 4 prêt !")
         return True
 
     except Exception as e:
-        print(f"Error initializing RAG: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Erreur RAG: {e}")
         return False
 
-
-# Initialize RAG at startup
-print("Initializing RAG model...")
-rag_initialized = init_rag()
-if not rag_initialized:
-    print("RAG model not available. Chat endpoints will return errors.")
-# ======================================
+init_rag()
 
 
-# Sanity check
+# ================= ROUTES API =================
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
-        "status": "ok",
-        "rag_available": RAG_MODEL is not None
+        "status": "ok", 
+        "rag_part4": RAG_MODEL is not None,
+        "nlp_part3": NLP_MODEL is not None,
+        "vision": MODEL is not None
     }), 200
 
-
-# Main prediction route
-@app.route("/api/predict_poster_genre", methods=["POST"])
-def predict_poster_genre():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded."}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Empty filename."}), 400
-
-    try:
-        image = Image.open(file.stream).convert("RGB")
-    except Exception as e:
-        return jsonify({"error": f"Unable to read image: {e}"}), 400
-
-    tensor = preprocess_image(image)
-    predictions = predict_genres(MODEL, tensor, CLASSES, top_k=3)
-    return jsonify({"predictions": predictions}), 200
-
-
-# OOD route
-@app.route("/api/check_is_poster", methods=["POST"])
-def check_is_poster():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-
-    file = request.files['file']
-
-    if OOD_DETECTOR is None:
-        return jsonify({"error": "OOD model not loaded"}), 500
-
-    try:
-        features = get_features(file, FEATURE_EXTRACTOR_MODEL).reshape(1, -1)
-        prediction = OOD_DETECTOR.predict(features)[0]
-        score = OOD_DETECTOR.decision_function(features)[0]
-        is_poster = True if prediction == 1 else False
-
-        return jsonify({
-            "is_poster": is_poster,
-            "anomaly_score": float(score),
-            "message": "It is a poster!" if is_poster else "This doesn't look like a poster."
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ===== PART 4: RAG CHAT ROUTES =====
-
+# --- CHAT ---
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    if RAG_MODEL is None:
-        return jsonify({"error": "RAG model not available.", "success": False}), 503
-
+    if RAG_MODEL is None: return jsonify({"error": "RAG not initialized"}), 503
     data = request.get_json()
-    if not data or "query" not in data:
-        return jsonify({"error": "Missing 'query'.", "success": False}), 400
-
-    query = data["query"].strip()
-    if not query:
-        return jsonify({"error": "Query cannot be empty.", "success": False}), 400
-
+    query = data.get("query", "").strip()
+    if not query: return jsonify({"error": "Empty query"}), 400
     try:
-        response = RAG_MODEL.ask(query)
-        return jsonify({"response": response, "success": True}), 200
-    except Exception as e:
-        return jsonify({"error": f"Error: {str(e)}", "success": False}), 500
-
-
-@app.route("/api/reset_chat", methods=["POST"])
-def reset_chat():
-    if RAG_MODEL is None:
-        return jsonify({"error": "RAG model not available.", "success": False}), 503
-    try:
-        RAG_MODEL.reset_chat()
-        return jsonify({"message": "Conversation reset.", "success": True}), 200
+        print(f"User: {query}")
+        return jsonify({"response": RAG_MODEL.ask(query), "success": True})
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
 
+@app.route("/api/reset_chat", methods=["POST"])
+def reset_chat():
+    if RAG_MODEL: RAG_MODEL.reset_chat()
+    return jsonify({"success": True}), 200
+
+# --- NLP ---
+@app.route("/api/predict_plot_genre", methods=["POST"])
+def predict_plot_genre():
+    if NLP_MODEL is None: return jsonify({"error": "NLP Model not loaded"}), 503
+    data = request.get_json()
+    plot = data.get("plot", "").strip()
+    if not plot: return jsonify({"error": "Empty plot"}), 400
+    try:
+        encoding = NLP_TOKENIZER(plot, max_length=256, padding='max_length', truncation=True, return_tensors='pt')
+        with torch.no_grad():
+            logits, _ = NLP_MODEL(encoding['input_ids'].to("cpu"), encoding['attention_mask'].to("cpu"))
+            probs = torch.nn.functional.softmax(logits, dim=1)
+        top_probs, top_indices = torch.topk(probs, 3)
+        results = [{"genre": NLP_CLASSES.get(idx.item(), "Unknown"), "score": float(score)} for score, idx in zip(top_probs[0], top_indices[0])]
+        return jsonify({"predictions": results})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- VISION ---
+@app.route("/api/predict_poster_genre", methods=["POST"])
+def predict_poster_genre():
+    if MODEL is None: return jsonify({"error": "Vision Model not loaded"}), 503
+    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
+    try:
+        image = Image.open(request.files['file'].stream).convert("RGB")
+        input_tensor = preprocess_image(image).to("cpu")
+        return jsonify({"predictions": predict_genres(MODEL, input_tensor, CLASSES)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/check_is_poster", methods=["POST"])
+def check_is_poster():
+    if OOD_DETECTOR is None: return jsonify({"error": "OOD Model not loaded"}), 503
+    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
+    try:
+        image = Image.open(request.files['file'].stream).convert("RGB")
+        input_tensor = preprocess_image(image).to("cpu")
+        with torch.no_grad():
+            features = FEATURE_EXTRACTOR_MODEL(input_tensor).cpu().numpy()
+        pipeline = OOD_DETECTOR['pipeline']
+        dist = float(pipeline[-1].kneighbors(pipeline[:-1].transform(features))[0].max())
+        is_poster = bool(dist <= OOD_DETECTOR['threshold'])
+        return jsonify({"is_poster": is_poster, "anomaly_score": dist})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    print("🚀 Serveur Flask (Mode PROD - Debug OFF)")
+    app.run(host="0.0.0.0", port=8000, debug=False)

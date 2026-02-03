@@ -46,20 +46,47 @@ class CLIPEmbedder:
         self.model = CLIPModel.from_pretrained(model_id).to(device)
         self.model.eval()
         self.processor = CLIPProcessor.from_pretrained(model_id)
-        self.dim = self.model.config.projection_dim  # usually 512
+        self.dim = self.model.config.projection_dim
 
     @torch.inference_mode()
     def embed_text(self, texts: List[str]) -> torch.Tensor:
         inputs = self.processor(text=texts, return_tensors="pt", padding=True, truncation=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        
+        # Récupération des features
         feats = self.model.get_text_features(**inputs)
+        
+        # --- FIX ROBUSTE (Déballage de l'objet si nécessaire) ---
+        if not isinstance(feats, torch.Tensor):
+            if hasattr(feats, 'text_embeds'):
+                feats = feats.text_embeds
+            elif hasattr(feats, 'pooler_output'):
+                feats = feats.pooler_output
+            else:
+                # Dernier recours : on prend le premier élément si c'est un tuple-like
+                feats = feats[0]
+        # --------------------------------------------------------
+
         return F.normalize(feats, p=2, dim=-1)
 
     @torch.inference_mode()
     def embed_images(self, images: List[Image.Image]) -> torch.Tensor:
         inputs = self.processor(images=images, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        
+        # Récupération des features
         feats = self.model.get_image_features(**inputs)
+
+        # --- FIX ROBUSTE (Déballage de l'objet si nécessaire) ---
+        if not isinstance(feats, torch.Tensor):
+            if hasattr(feats, 'image_embeds'):
+                feats = feats.image_embeds
+            elif hasattr(feats, 'pooler_output'):
+                feats = feats.pooler_output
+            else:
+                feats = feats[0]
+        # --------------------------------------------------------
+        
         return F.normalize(feats, p=2, dim=-1)
 
 

@@ -1,22 +1,35 @@
 import shutil
 import random
+import sys
+import os
 from pathlib import Path
 
-# --- CONFIG ---
-# Where your raw, genre-sorted posters live
-SOURCE_DIR = Path("data/raw/sorted_movie_posters_paligema")
+# --- 1. FIX DES CHEMINS (Indispensable pour la portabilité) ---
+script_dir = Path(__file__).resolve().parent
+if script_dir.name == 'scripts':
+    project_root = script_dir.parent
+else:
+    project_root = script_dir
+# -------------------------------------------------------------
 
-# Where to create the train/val dataset used by PyTorch
-DEST_DIR = Path("data/processed/dataset")
+# --- CONFIGURATION ADAPTÉE ---
+
+# 1. SOURCE : Où sont vos images DÉJÀ triées par dossiers ?
+# (Adaptez ce chemin si vos dossiers triés sont ailleurs)
+# Exemple attendu : data/raw/sorted_movie_posters_paligema/Action/img1.jpg
+SOURCE_DIR = project_root / "data/raw/sorted_movie_posters_paligema"
+
+# 2. DESTINATION : Cible obligatoire pour que le script d'entrainement fonctionne
+DEST_DIR = project_root / "data" / "dataset"
 
 TRAIN_SPLIT = 0.8
 RANDOM_SEED = 42
-MOVE_INSTEAD_OF_COPY = False  # True to move files instead of copying
-# ----------------
+MOVE_INSTEAD_OF_COPY = False  # False = Copier (plus sûr), True = Déplacer
+# -----------------------------
 
 random.seed(RANDOM_SEED)
 
-# Recognized image extensions (case-insensitive)
+# Extensions reconnues
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff"}
 
 

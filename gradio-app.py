@@ -55,6 +55,24 @@ def check_poster(image):
                 return f"API Error: {response.text}"
     except Exception as e:
         return f"Error: {str(e)}"
+    
+def predict_genre_from_plot(plot_text):
+    if not plot_text:
+        return "⚠️ Entrez un résumé."
+    
+    try:
+        response = requests.post(
+            f"{API_URL}/api/predict_plot_genre", 
+            json={"plot": plot_text}
+        )
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 503:
+            return {"Info": "Modèle NLP non chargé."}
+        else:
+            return {"Error": f"API {response.status_code}"}
+    except Exception as e:
+        return {"Error": str(e)}
 
 
 # --- PART 4: RAG Movie Chat (simplified, no Chatbot component) ---
@@ -110,6 +128,7 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
     
     Welcome to our AI-powered movie platform! Choose a feature below:
     - **Poster Analysis**: Check if an image is a valid poster and predict its genre
+    - **Summary Analysis**: Predict the genre of a movie based on its plot
     - **Movie Discovery**: Chat with AI to find movies you'll love
     """)
 
@@ -132,6 +151,18 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
 
             btn_check.click(fn=check_poster, inputs=input_image, outputs=output_check)
             btn_predict.click(fn=predict_poster_genre_gradio, inputs=input_image, outputs=output_predict)
+        
+        # ===== ONGLET 3 : NLP PLOT =====
+        with gr.TabItem("Summary Analysis"):
+            gr.Markdown("### Predict the genre of a movie via its summary")
+            with gr.Row():
+                with gr.Column():
+                    plot_input = gr.Textbox(lines=5, label="Movie plot", placeholder="A group of heroes saves the world...")
+                    nlp_btn = gr.Button("Predict the genre", variant="primary")
+                with gr.Column():
+                    nlp_output = gr.JSON(label="Genre predictions")
+            
+            nlp_btn.click(predict_genre_from_plot, inputs=plot_input, outputs=nlp_output)
 
         # ===== TAB 2: Movie Discovery Chat (Part 4) =====
         with gr.TabItem("Movie Discovery"):
