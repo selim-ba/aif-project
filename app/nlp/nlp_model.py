@@ -1,4 +1,5 @@
 # Fichier: app/nlp/nlp_model.py
+
 import torch.nn as nn
 from transformers import DistilBertModel
 
@@ -9,7 +10,7 @@ class BertClf(nn.Module):
         self.distilbert = DistilBertModel.from_pretrained(model_name)
         self.classifier = nn.Linear(self.distilbert.config.hidden_size, num_labels)
         
-        # Freeze parameters except the classifier (Optimization)
+        # Optimisation : on gèle les poids de DistilBERT
         for name, param in self.distilbert.named_parameters():
             param.requires_grad = False
 

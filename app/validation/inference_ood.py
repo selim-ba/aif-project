@@ -1,3 +1,5 @@
+# app/validation/inference_ood.py
+
 from typing import List, Dict
 import torch
 from PIL import Image
@@ -13,7 +15,7 @@ _transform = transforms.Compose([
 
 def preprocess_image(img: Image.Image) -> torch.Tensor:
     """
-    Apply the same preprocessing used during training and return a [1, C, H, W] tensor.
+    Meme preprocessing que pendant l'entraînement, retourne un tenseur [1, C, H, W].
     """
     tensor = _transform(img)
     return tensor.unsqueeze(0)
@@ -26,7 +28,7 @@ def get_features(image_file,feature_extractor_model) -> List[float]:
     image_tensor = preprocess_image(image)
     image_tensor = image_tensor.to("cpu")
 
-    # 3. Appliquer la méthode forward (Inférence)
+    # (Inférence, méthode forward)
     with torch.no_grad(): # Désactive le calcul des gradients (économise mémoire et calcul)
         features_vector = feature_extractor_model(image_tensor)
         

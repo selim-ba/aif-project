@@ -1,3 +1,5 @@
+# part 4 - app/rag/foundation_model.py
+
 import torch
 import re
 from typing import List, Optional
@@ -14,7 +16,7 @@ def pick_device():
 
 class FoundationModel:
     """
-    Chat-capable LLM wrapper with:
+    LLM wrapper with:
       - history (multi-turn chat)
       - per-turn RAG context injection
       - tokenizer.apply_chat_template formatting
@@ -28,7 +30,7 @@ class FoundationModel:
             "You are a movie recommendation assistant. Ask clarifying questions when needed "
             "and recommend a small set of movies with brief reasons."
         ),
-        TEMPERATURE: float = 0.7,
+        TEMPERATURE: float = 0.7, # arbitraire
         MAX_NEW_TOKENS: int = 512,
         MAX_INPUT_TOKENS: int = 4096,
         DO_SAMPLE: bool = True,
@@ -48,7 +50,6 @@ class FoundationModel:
             trust_remote_code=True,
         )
 
-        # Avoid padding issues in pipeline
         if self.tokenizer.pad_token is None and self.tokenizer.eos_token is not None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -118,7 +119,6 @@ class FoundationModel:
 
         assistant_text_clean = re.sub(r"<think>.*?</think>", "", assistant_text, flags=re.DOTALL).strip()
 
-        # Update history (usually don't store retrieval context)
         new_hist = trimmed_hist + [
             {"role": "user", "content": user_text},
             {"role": "assistant", "content": assistant_text_clean},

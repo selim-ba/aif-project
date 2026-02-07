@@ -1,18 +1,6 @@
+# scripts/build_movies_json.py
+
 #!/usr/bin/env python3
-"""
-Build movies.json metadata file from movie_plot.csv
-
-Your CSV format:
-- movie_poster_path: e.g., "action/100108.jpg"
-- movie_plot: Contains title in quotes, e.g., 'The movie "Parker" is a thrilling...'
-- movie_category: e.g., "action"
-
-This script extracts the movie title from the plot text.
-
-Usage:
-    python build_movies_json.py --csv movie_plot.csv --out movies.json
-"""
-
 import argparse
 import json
 import re
@@ -58,7 +46,7 @@ def main():
         df = df.head(args.max_rows)
         print(f"Limited to {args.max_rows} rows for debugging")
 
-    # Check for required columns
+    # required columns
     required = ["movie_poster_path", "movie_plot", "movie_category"]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -75,12 +63,11 @@ def main():
         poster_path = str(row.get("movie_poster_path", "")).strip()
         category = str(row.get("movie_category", "")).strip()
         
-        # Generate fallback title from poster filename
-        # e.g., "action/100108.jpg" -> "Movie 100108"
+        # Generate fallback title from poster filename : "action/100108.jpg" -> "Movie 100108"
         filename = os.path.splitext(os.path.basename(poster_path))[0]
         fallback_title = f"Movie {filename}" if filename else f"Movie {idx}"
         
-        # Try to extract title from plot
+        # to try to extract title from plot
         title = extract_title_from_plot(plot, fallback=fallback_title)
         
         if title != fallback_title:
@@ -95,16 +82,14 @@ def main():
             "category": category,
         }
 
-    # Save to JSON
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(movies, f, ensure_ascii=False, indent=2)
 
-    print(f"\n✅ Saved {len(movies)} movies to {args.out}")
+    print(f"\nSaved {len(movies)} movies to {args.out}")
     print(f"   - Titles extracted from plot: {titles_extracted}")
     print(f"   - Titles using fallback: {titles_fallback}")
     
-    # Show a few samples
-    print("\n📋 Sample entries:")
+    print("\nSample entries:")
     for i in range(min(3, len(movies))):
         m = movies[i]
         print(f"   [{i}] {m['title']} ({m['category']})")

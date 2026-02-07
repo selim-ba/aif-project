@@ -1,3 +1,5 @@
+# part 4 - appa/rag/embedding_model.py
+
 from typing import List
 import torch
 import torch.nn.functional as F
@@ -18,7 +20,10 @@ def pick_device() -> torch.device:
 
 
 class EmbeddingModel:
-    """CLIP embedder for text (plots/queries) and images (posters) in the SAME space."""
+    """
+        Embedding avec CLIP pour textes (plots/queries) et images (posters) dans le même espace latent.
+        clip-vit-base-patch32
+    """
     def __init__(self, model_id: str = "openai/clip-vit-base-patch32"):
         self.device = pick_device()
         self.model = CLIPModel.from_pretrained(model_id).to(self.device)

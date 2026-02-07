@@ -1,3 +1,5 @@
+# scripts/train_ood.py
+
 import torch
 import torch.nn as nn
 import joblib
@@ -10,7 +12,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from app.validation.feature_extractor import FeatureExtractor
 
-# --- CONFIG ---
+# config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DATASET_DIR = PROJECT_ROOT / "dataset"
@@ -20,7 +22,7 @@ VAL_DIR = DATASET_DIR / "val"
 MODELS_DIR = PROJECT_ROOT / "models"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
 GENRES_PATH = MODELS_DIR / "genres.json"
-# ---------------
+
 
 def main():
     device = get_device()
@@ -29,13 +31,13 @@ def main():
     train_data, val_data, train_loader, val_loader = load_datasets()
     num_classes = len(train_data.classes)
 
-    # 1. Charger le modèle pré-entraîné
+    # charger le modèle pré-entraîné
     model = load_trained_model(str(WEIGHTS_PATH), num_classes=num_classes, device="cpu")
     feature_extractor = FeatureExtractor(model)
     feature_extractor.to(device)
     feature_extractor.eval()
 
-    print("Extraction des features en cours...")
+    print("Extraction des features ..")
     features_list = []
     with torch.no_grad():
         for images,_ in train_loader:
@@ -49,21 +51,20 @@ def main():
 
     if len(features_list) > 0:
         features_array = np.concatenate(features_list, axis=0)
-        print(f"Extraction terminée ! Forme des features : {features_array.shape}")
+        # print(f"Forme des features : {features_array.shape}")
     else:
-        print("Erreur : Aucune feature extraite. Vérifiez votre DataLoader.")
+        print("Aucune feature extraite. Vérifiez le DataLoader.")
 
-    # 4. Entraîner le modèle OOD (OneClassSVM)
+    # entraîner le modèle OOD (OneClassSVM)
     clf = make_pipeline(
         StandardScaler(),
         OneClassSVM(kernel="rbf", nu=0.01, gamma='scale')
     )
-    # nu=0.01 est l'équivalent de la contamination (environ)
+    # nu=0.01 est l'équivalent de la contamination 
 
     print(f"Entraînement OneClassSVM sur {features_array.shape[0]} images...")
     clf.fit(features_array)
-
-    # 5. Sauvegarder
+    
     joblib.dump(clf, str(MODELS_DIR / "ood_detector.joblib"))
     print(f"Modèle OOD sauvegardé sous {MODELS_DIR / 'ood_detector.joblib'}")
 

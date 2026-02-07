@@ -1,3 +1,5 @@
+# scripts/test_inference.py
+
 from pathlib import Path
 import json
 import random

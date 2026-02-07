@@ -3,3 +3,8 @@ __pycache__/
 dataset/
 scripts/
 *.tar.gz
+data-old/
+models-old/
+data/
+main-old.py
+gradio-app-old.py

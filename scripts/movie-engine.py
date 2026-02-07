@@ -1,24 +1,23 @@
+# scripts/movie-engine.py
+
 import sys
 import os
 from pathlib import Path
 
-# --- FIX DES CHEMINS (Logique Infaillible) ---
-# 1. Chemin absolu du fichier actuel (movie-engine.py)
+
 current_file = Path(__file__).resolve()
 
-# 2. On identifie la racine 
 if current_file.parent.name == 'scripts':
     project_root = current_file.parent.parent
 else:
     project_root = current_file.parent
 
-# 3. Ajout au Path pour les imports
 if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
-print(f"📍 Script: {current_file}")
-print(f"📍 RACINE PROJET DÉTECTÉE: {project_root}")
-# -----------------------------------------------------------
+print(f"Script: {current_file}")
+print(f"RACINE PROJET DÉTECTÉE: {project_root}")
+
 
 import pandas as pd
 import numpy as np
@@ -33,20 +32,19 @@ from annoy import AnnoyIndex
 import json
 import pickle
 
-# Import de la classe partagée
+
 try:
     from app.nlp.nlp_model import BertClf
 except ImportError as e:
-    print("\n❌ ERREUR D'IMPORT: Impossible de trouver 'app.nlp.nlp_model'.")
-    print(f"   Vérifiez que le fichier 'app/nlp/nlp_model.py' existe bien dans : {project_root}")
+    print("\n Impossible de trouver 'app.nlp.nlp_model'.")
+    print(f" Vérifiez que le fichier 'app/nlp/nlp_model.py' existe bien dans : {project_root}")
     sys.exit(1)
 
-# --- CONFIGURATION DES DOSSIERS ---
-# On force l'utilisation des dossiers à la racine
+
 DATA_DIR = project_root / "data"
 MODELS_DIR = project_root / "models"
 
-# Création des dossiers racine si inexistants
+
 DATA_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
@@ -55,12 +53,18 @@ MODEL_NAME = 'distilbert-base-uncased'
 MAX_LEN = 256
 BATCH_SIZE = 16
 EPOCHS = 2
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+elif torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+else:
+    DEVICE = torch.device("cpu")
 
-print(f"🔧 Device: {DEVICE}")
-print(f"📂 Fichier CSV attendu ici: {CSV_FILE}")
 
-# 1. Dataset Class
+print(f"Device: {DEVICE}")
+print(f"Fichier CSV attendu ici: {CSV_FILE}")
+
 class MoviePlotDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_len):
         self.texts = [str(t) for t in texts]
@@ -75,7 +79,6 @@ class MoviePlotDataset(Dataset):
         text = self.texts[idx]
         label = self.labels[idx]
 
-        # Appel direct (plus robuste que encode_plus sur certaines versions)
         encoding = self.tokenizer(
             text,
             max_length=self.max_len,
@@ -91,7 +94,7 @@ class MoviePlotDataset(Dataset):
             'labels': torch.tensor(label, dtype=torch.long)
         }
 
-# 2. Training Loop
+# training loop
 def train_epoch(model, data_loader, loss_fn, optimizer, device, n_examples):
     model = model.train()
     losses = []
@@ -114,9 +117,11 @@ def train_epoch(model, data_loader, loss_fn, optimizer, device, n_examples):
         optimizer.step()
         optimizer.zero_grad()
 
-    return correct_predictions.double() / n_examples, np.mean(losses)
+    #return correct_predictions.double() / n_examples, np.mean(losses)
+    return (correct_predictions.float() / n_examples).item(), float(np.mean(losses)) #modifie 06/02/2026
 
-# 3. Embedding Generation
+
+# embedding
 def get_embeddings(model, data_loader, device):
     model = model.eval()
     embeddings = []
@@ -131,15 +136,15 @@ def get_embeddings(model, data_loader, device):
             
     return np.vstack(embeddings)
 
-# --- MAIN ---
+# Main
 if __name__ == "__main__":
     if not CSV_FILE.exists():
-        print(f"\n❌ ERREUR FATALE : Le fichier CSV est introuvable !")
+        print("Le fichier CSV est introuvable !")
         print(f"   Chemin cherché : {CSV_FILE}")
-        print("   Action : Copiez 'movie_plots.csv' dans le dossier 'data' à la racine du projet.")
+        print("Copiez 'movie_plots.csv' dans le dossier 'data' à la racine du projet.")
         exit(1)
 
-    print("✅ CSV trouvé. Chargement des données...")
+    print("CSV trouvé. Chargement des données...")
     df = pd.read_csv(CSV_FILE)
     
     # Label Mapping
@@ -169,25 +174,24 @@ if __name__ == "__main__":
     loss_fn = nn.CrossEntropyLoss().to(DEVICE)
 
     # Training
-    print("\n=== DÉBUT ENTRAÎNEMENT ===")
+    print("\n -- DÉBUT ENTRAÎNEMENT --")
     for epoch in range(EPOCHS):
         print(f"Epoch {epoch + 1}/{EPOCHS}")
         train_acc, train_loss = train_epoch(model, train_loader, loss_fn, optimizer, DEVICE, len(df_train))
         print(f"Train loss {train_loss:.4f} accuracy {train_acc:.4f}")
 
-    # --- SAVING ARTIFACTS ---
-    print("\n=== SAUVEGARDE DES RÉSULTATS ===")
+    print("\n -- SAUVEGARDE DES RÉSULTATS -- ")
     
     # 1. Weights
     save_path_weights = MODELS_DIR / "part3_nlp_weights.pth"
     torch.save(model.state_dict(), save_path_weights)
-    print(f"✅ Poids sauvegardés : {save_path_weights}")
+    print(f"Poids sauvegardés : {save_path_weights}")
 
     # 2. Labels Mapping
     save_path_classes = MODELS_DIR / "part3_classes.json"
     with open(save_path_classes, "w") as f:
         json.dump(id2label, f)
-    print(f"✅ Classes sauvegardées : {save_path_classes}")
+    print(f"Classes sauvegardées : {save_path_classes}")
 
     # 3. Annoy Index
     print("Construction de l'Index Annoy...")
@@ -204,5 +208,4 @@ if __name__ == "__main__":
     t.build(10)
     save_path_ann = MODELS_DIR / 'part3_plot.ann'
     t.save(str(save_path_ann))
-    print(f"✅ Index Annoy sauvegardé : {save_path_ann}")
-    print("\n🎉 TERMINÉ ! Vous pouvez relancer 'main.py'.")
+    print(f"Index Annoy sauvegardé : {save_path_ann}")

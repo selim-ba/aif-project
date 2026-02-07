@@ -1,3 +1,5 @@
+# app/validation/feature_extractor.py
+
 from pathlib import Path
 import torch
 import torch.nn as nn

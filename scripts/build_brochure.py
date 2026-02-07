@@ -1,3 +1,5 @@
+# scripts/build_brochure.py
+
 import pandas as pd
 import pickle
 import os
@@ -14,11 +16,11 @@ def main():
     
     movies_db = {}
     
-    # On parcourt le CSV pour créer le dictionnaire
+    # parcourt du CSV pour créer le dictionnaire
     for idx, row in df.iterrows():
-        # Extraction basique du titre
+        # Extraction du titre
         plot = str(row.get("movie_plot", ""))
-        title = f"Movie {idx}" # Vous pouvez améliorer l'extraction de titre ici si besoin
+        title = f"Movie {idx}" 
         
         movies_db[idx] = {
             "title": title,
@@ -31,7 +33,7 @@ def main():
     with open(args.out, "wb") as f:
         pickle.dump(movies_db, f)
         
-    print(f"✅ Fichier '{args.out}' généré ({len(movies_db)} films).")
+    print(f"Fichier '{args.out}' généré ({len(movies_db)} films).")
 
 if __name__ == "__main__":
     main()

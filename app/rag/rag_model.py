@@ -1,3 +1,5 @@
+# part 4 - app/rag/rag_model.py
+
 import torch
 import re
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -10,12 +12,13 @@ class RAG:
         self.brochure = brochure
         self.config = config
         
-        # 1. SETUP HARDWARE
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"⚡ RAG Inference running on: {self.device.upper()}")
+        # Setup hardware
+        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" # pb avec mps sur mac, on force l'usage du cpu pour l'inference
+        print(f" RAG Inference running on: {self.device.upper()}")
 
-        # 2. LLM (Qwen)
-        print("   [LLM] Loading Qwen...")
+        # LLM (Qwen)
+        print(" Loading Qwen...")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(config["FOUND_MODEL_PATH"])
             if self.tokenizer.pad_token is None:
@@ -23,22 +26,24 @@ class RAG:
                 
             self.model = AutoModelForCausalLM.from_pretrained(
                 config["FOUND_MODEL_PATH"], 
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                #torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                torch_dtype=torch.float32,
                 device_map="auto"
             )
+            self.model.to(self.device)
             self.model.eval()
         except Exception as e:
-            print(f"❌ Error loading LLM: {e}")
+            print(f"Error loading LLM: {e}")
             raise e
 
-        # 3. CLIP
-        print(f"   [Embedding] Loading CLIP on {self.device}...")
+        # CLIP
+        print(f"Loading CLIP on {self.device}...")
         try:
             self.clip_model = CLIPModel.from_pretrained(config["CLIP_MODEL_ID"]).to(self.device)
             self.clip_processor = CLIPProcessor.from_pretrained(config["CLIP_MODEL_ID"])
             self.clip_model.eval()
         except Exception as e:
-            print(f"❌ Error loading CLIP: {e}")
+            print(f"Error loading CLIP: {e}")
             raise e
 
         self.chat_history = []
@@ -64,12 +69,13 @@ class RAG:
         try:
             indices, distances = self.index.get_nns_by_vector(query_vector, n_results, include_distances=True)
         except Exception as e:
-            print(f"⚠️ Annoy Index Error: {e}")
+            print(f"Annoy Index Error: {e}")
             return []
 
         results = []
         for idx, dist in zip(indices, distances):
-            raw_key = self.id_map.get(idx)
+            # raw_key = self.id_map.get(idx)
+            raw_key = self.id_map.get(str(idx))
             brochure_key = raw_key
             if isinstance(raw_key, dict):
                 brochure_key = list(raw_key.values())[0]
@@ -88,7 +94,7 @@ class RAG:
         if not retrieved_docs:
             return "I couldn't find any movies matching your description."
 
-        # Construction du contexte (On garde l'image ref au cas où il se trompe)
+        # Construction du contexte 
         context_pieces = []
         for doc in retrieved_docs:
             plot = doc.get('plot') or doc.get('movie_plot') or ""
@@ -101,7 +107,7 @@ class RAG:
 
         system_prompt = self.config["SYSTEM_PROMPT"]
         
-        # --- VOTRE PROMPT ---
+        # User prompt + contexte
         user_prompt = f"""You are a movie database assistant.
 User Request: "{query}"
 
@@ -125,24 +131,44 @@ Assistant:"""
         ]
         
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.device)
+        # model_inputs = self.tokenizer([text], return_tensors="pt").to(self.device)
+
+        # with torch.no_grad():
+        #     generated_ids = self.model.generate(
+        #         model_inputs.input_ids,
+        #         attention_mask=model_inputs.attention_mask,
+        #         max_new_tokens=400, 
+        #         temperature=0.5, # Température moyenne : on veut qu'il ose deviner un peu
+        #         do_sample=True,
+        #         top_k=50,
+        #         top_p=0.95,
+        #         pad_token_id=self.tokenizer.eos_token_id
+        #     )
+        
+        # input_length = model_inputs.input_ids.shape[1]
+        # new_tokens = generated_ids[:, input_length:]
+        # raw_response = self.tokenizer.batch_decode(new_tokens, skip_special_tokens=True)[0]
+        
+
+        model_inputs = self.tokenizer([text], return_tensors="pt")
+        model_inputs = {k: v.to(self.device) for k, v in model_inputs.items()}
 
         with torch.no_grad():
             generated_ids = self.model.generate(
-                model_inputs.input_ids,
-                attention_mask=model_inputs.attention_mask,
-                max_new_tokens=400, 
-                temperature=0.5, # Température moyenne : on veut qu'il ose deviner un peu
+                input_ids=model_inputs["input_ids"],
+                attention_mask=model_inputs["attention_mask"],
+                max_new_tokens=400,
+                temperature=0.5,
                 do_sample=True,
                 top_k=50,
                 top_p=0.95,
                 pad_token_id=self.tokenizer.eos_token_id
             )
-        
-        input_length = model_inputs.input_ids.shape[1]
+
+        input_length = model_inputs["input_ids"].shape[1]
         new_tokens = generated_ids[:, input_length:]
         raw_response = self.tokenizer.batch_decode(new_tokens, skip_special_tokens=True)[0]
-        
+
         # --- NETTOYAGE ---
         clean_response = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
         if '<think>' in clean_response:

@@ -1,23 +1,6 @@
+# scripts/build_clip_annoy.py
+
 #!/usr/bin/env python3
-"""
-Build a SINGLE Annoy index containing BOTH:
-- plot embeddings (CLIP text encoder)
-- poster embeddings (CLIP image encoder)
-
-CSV columns expected (your format):
-- movie_poster_path  (e.g. "action/100108.jpg")
-- movie_plot
-- movie_category
-
-Index item IDs:
-- annoy_id = 2*row_index     -> plot vector
-- annoy_id = 2*row_index + 1 -> poster vector
-
-Outputs:
-- .ann annoy index
-- id_map.json mapping annoy_id -> metadata (row_index, modality, poster_path, category)
-"""
-
 import argparse
 import json
 import os
@@ -53,19 +36,18 @@ class CLIPEmbedder:
         inputs = self.processor(text=texts, return_tensors="pt", padding=True, truncation=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
-        # Récupération des features
+        # features
         feats = self.model.get_text_features(**inputs)
         
-        # --- FIX ROBUSTE (Déballage de l'objet si nécessaire) ---
         if not isinstance(feats, torch.Tensor):
             if hasattr(feats, 'text_embeds'):
                 feats = feats.text_embeds
             elif hasattr(feats, 'pooler_output'):
                 feats = feats.pooler_output
             else:
-                # Dernier recours : on prend le premier élément si c'est un tuple-like
+                # Dernier recours : on prend le premier élément
                 feats = feats[0]
-        # --------------------------------------------------------
+
 
         return F.normalize(feats, p=2, dim=-1)
 
@@ -77,7 +59,6 @@ class CLIPEmbedder:
         # Récupération des features
         feats = self.model.get_image_features(**inputs)
 
-        # --- FIX ROBUSTE (Déballage de l'objet si nécessaire) ---
         if not isinstance(feats, torch.Tensor):
             if hasattr(feats, 'image_embeds'):
                 feats = feats.image_embeds
@@ -85,7 +66,7 @@ class CLIPEmbedder:
                 feats = feats.pooler_output
             else:
                 feats = feats[0]
-        # --------------------------------------------------------
+
         
         return F.normalize(feats, p=2, dim=-1)
 
@@ -142,12 +123,12 @@ def main():
         poster_rel = batch["movie_poster_path"].fillna("").astype(str).tolist()
         cats = batch["movie_category"].fillna("").astype(str).tolist()
 
-        # ---- Plot embeddings (batched) ----
+        # Plot (batched) embeddings
         plot_embs = clip.embed_text(plots)  # (B, dim)
 
-        # ---- Poster embeddings (load what exists, batched) ----
+        # Poster embeddings (batched)
         images = []
-        img_row_idxs = []  # index within batch
+        img_row_idxs = []  
         abs_paths = []
 
         for j, rel in enumerate(poster_rel):
@@ -162,9 +143,9 @@ def main():
                 abs_paths.append(abs_path)
 
         poster_embs = clip.embed_images(images) if images else None
-        row_to_k = {j: k for k, j in enumerate(img_row_idxs)}  # faster than list.index
+        row_to_k = {j: k for k, j in enumerate(img_row_idxs)}  
 
-        # ---- Add to Annoy ----
+        # Add to Annoy index
         for j in range(end - start):
             row_idx = start + j
             plot_annoy_id = 2 * row_idx

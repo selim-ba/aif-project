@@ -1,3 +1,5 @@
+# gradio-app.py
+
 import gradio as gr
 import requests
 import os
@@ -8,7 +10,7 @@ API_URL = "http://127.0.0.1:8000"  # local testing
 # API_URL = "http://flask-api:8000"  # docker-compose / cloud
 
 
-# --- PART 1-2: Poster Genre Prediction ---
+# Part 1&2 : Poster Genre Prediction
 def predict_poster_genre_gradio(image_file):
     """Send image to Flask API for genre prediction."""
     if image_file is None:
@@ -58,7 +60,7 @@ def check_poster(image):
     
 def predict_genre_from_plot(plot_text):
     if not plot_text:
-        return "⚠️ Entrez un résumé."
+        return "Please enter a movie plot."
     
     try:
         response = requests.post(
@@ -68,14 +70,14 @@ def predict_genre_from_plot(plot_text):
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 503:
-            return {"Info": "Modèle NLP non chargé."}
+            return {"Info": "NLP model not loaded. Please try again later."}
         else:
             return {"Error": f"API {response.status_code}"}
     except Exception as e:
         return {"Error": str(e)}
 
 
-# --- PART 4: RAG Movie Chat (simplified, no Chatbot component) ---
+# Par 4: NLP/RAG Movie Chat
 def chat_with_movies(message, conversation_history):
     """Send a message to the RAG chat API and get a response."""
     if not message.strip():
@@ -121,19 +123,20 @@ def reset_conversation():
         return "", f"Error: {str(e)}"
 
 
-# --- Build the Gradio Interface with Tabs ---
-with gr.Blocks(title="Movie Poster AI Platform") as demo:
+# Gradio Interface
+with gr.Blocks(title="INSA Toulouse Project : AI Tools for a Movie Streaming Platform") as demo:
     gr.Markdown("""
-    # Movie Poster AI Platform
+    # AI Tools for a Movie Streaming Platform
+    ### Group Members : Selim Ben Abdallah, Arman Hosseini, Paul Slisse, Guillaume Staub
     
-    Welcome to our AI-powered movie platform! Choose a feature below:
-    - **Poster Analysis**: Check if an image is a valid poster and predict its genre
-    - **Summary Analysis**: Predict the genre of a movie based on its plot
-    - **Movie Discovery**: Chat with AI to find movies you'll love
+    Choose a feature below:
+    - **Poster Analysis**: Check if an image is a valid poster and predict its genre.
+    - **Plot-based genre prediction**: Predict the genre of a movie based on its plot.
+    - **Natural Language Movie Discovery**: Chat with AI to find movies you'll might like.
     """)
 
     with gr.Tabs():
-        # ===== TAB 1: Poster Analysis (Parts 1-2) =====
+        # Poster Analysis (Parts 1-2)
         with gr.TabItem("Poster Analysis"):
             gr.Markdown("### Upload a movie poster to analyze")
 
@@ -152,8 +155,8 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
             btn_check.click(fn=check_poster, inputs=input_image, outputs=output_check)
             btn_predict.click(fn=predict_poster_genre_gradio, inputs=input_image, outputs=output_predict)
         
-        # ===== ONGLET 3 : NLP PLOT =====
-        with gr.TabItem("Summary Analysis"):
+        # Plot-based genre prediction Genre Prediction (Part 3)
+        with gr.TabItem("Plot-based genre prediction"):
             gr.Markdown("### Predict the genre of a movie via its summary")
             with gr.Row():
                 with gr.Column():
@@ -164,19 +167,12 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
             
             nlp_btn.click(predict_genre_from_plot, inputs=plot_input, outputs=nlp_output)
 
-        # ===== TAB 2: Movie Discovery Chat (Part 4) =====
-        with gr.TabItem("Movie Discovery"):
+        # Natural Language Movie Discovery Chat (Part 4)
+        with gr.TabItem("Natural Language Movie Discovery"):
             gr.Markdown("""
-            ### Chat with AI to discover movies
-            
-            Tell me what kind of movie you're in the mood for! You can:
-            - Describe a mood or theme: "I want something thrilling and suspenseful"
-            - Reference other movies: "Something like Inception but more romantic"
-            - Specify genres and preferences: "A comedy from the 2010s"
-            - Ask follow-up questions to refine recommendations
+            ### Chat with AI to discover movies you might like !
             """)
 
-            # Use Textbox instead of Chatbot for compatibility
             conversation_box = gr.Textbox(
                 label="Conversation",
                 lines=15,
@@ -198,15 +194,14 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
                 clear_btn = gr.Button("Reset Conversation", variant="secondary")
                 status_text = gr.Textbox(label="Status", interactive=False, scale=2)
 
-            gr.Markdown("""
-            **Try these examples:**
-            - I want a sci-fi movie with a cyberpunk aesthetic
-            - Something funny for a family movie night
-            - A thriller with a strong female lead
-            - Movies about time travel with plot twists
-            """)
+            # gr.Markdown("""
+            # **Try these examples:**
+            # - I want a sci-fi movie with a cyberpunk aesthetic
+            # - Something funny for a family movie night
+            # - A thriller with a strong female lead
+            # - Movies about time travel with plot twists
+            # """)
 
-            # Connect events
             msg_input.submit(
                 chat_with_movies,
                 [msg_input, conversation_box],
@@ -218,8 +213,6 @@ with gr.Blocks(title="Movie Poster AI Platform") as demo:
                 [conversation_box, msg_input, status_text]
             )
             clear_btn.click(reset_conversation, outputs=[conversation_box, status_text])
-
-    gr.Markdown("---\n*Built with CLIP, Annoy, and Transformers*")
 
 
 if __name__ == "__main__":

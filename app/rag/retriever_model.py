@@ -1,3 +1,5 @@
+# part 4 - app/rag/retriever_model.py
+
 import numpy as np
 
 class Retriever:
@@ -16,6 +18,6 @@ class Retriever:
 
         ids, dists = self.annoy.get_nns_by_vector(q, top_k, include_distances=True)
 
-        # return raw hits (you can dedupe by movie_id later)
+        # return raw hits
         return [(*self.id_map[i], i, d) for i, d in zip(ids, dists)]
         # -> (movie_id, modality, annoy_id, dist)
