@@ -5,6 +5,11 @@ import joblib
 from flask import Flask, jsonify, request
 from PIL import Image
 from pydantic import ValidationError
+import torch
+import torch.nn as nn
+import pandas as pd
+from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
+from annoy import AnnoyIndex
 
 from app.plot.model import predict_genre_logic
 from app.plot.schemas import PlotRequest
@@ -12,6 +17,7 @@ from app.posters.model import load_trained_model # resnet model
 from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
 from app.validation.feature_extractor import FeatureExtractor #feature extraction model
 from app.validation.inference_ood import get_features #feature extraction function
+from app.plot import config
 
 app = Flask(__name__) #creation of the Flask application instance 
 
@@ -26,11 +32,18 @@ with GENRES_PATH.open("r", encoding="utf-8") as f:
     data = json.load(f)
 CLASSES = data["classes"] #so that : CLASSES = ['action', 'animation', 'comedy', ...]
 
-# Loads model once when the server starts (so that it's not reloaded for every request)
-MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
+# Loads classification model once when the server starts (so that it's not reloaded for every request)
+try :
+    print("Chargement du modèle de classification des posters...")
+    MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
+    print("Modèle de classification des posters chargé avec succès.")
+except:
+    print(f"Erreur lors du chargement du modèle de classification des posters depuis {WEIGHTS_PATH}")
+    MODEL = None
 
-#load OOD model
+#Load OOD model and feature extractor
 try:
+    print("Chargement du détecteur OOD...")
     OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
     print("Détecteur OOD chargé.")
 except:
@@ -40,6 +53,44 @@ except:
 FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
 FEATURE_EXTRACTOR_MODEL.to("cpu")
 FEATURE_EXTRACTOR_MODEL.eval()
+
+# Load classification model of plots
+# Model Definition
+class BertClf(nn.Module):
+    def __init__(self, distilbert_model):
+        super(BertClf, self).__init__()
+        self.distilbert = distilbert_model
+        
+    def forward(self, input_ids, mask):
+        out = self.distilbert(input_ids, attention_mask=mask)
+        return out.logits, out.hidden_states, out.attentions
+
+# Load resources
+
+print('Chargement du modèle NLP') # test print to ensure everything is going right
+
+df = pd.read_pickle(config.PATH_BROCHURE)
+id2label = {i: cat for i, cat in enumerate(df['movie_category'].unique())}
+label2id = {cat: i for i, cat in enumerate(df['movie_category'].unique())}
+
+TOKENIZER = DistilBertTokenizerFast.from_pretrained(config.MODEL_NAME)
+
+base_model = DistilBertForSequenceClassification.from_pretrained(
+    config.MODEL_NAME, 
+    num_labels=len(label2id),
+    output_attentions=False, 
+    output_hidden_states=False
+)
+print("Modèle de base DistilBERT chargé.")
+MODEL_NLP = BertClf(base_model)
+MODEL_NLP.load_state_dict(torch.load(config.PATH_WEIGHTS, map_location="cpu"))
+MODEL_NLP.to("cpu")
+MODEL_NLP.eval()
+
+annoy_index = AnnoyIndex(768, 'angular')
+annoy_index.load(config.PATH_INDEX)
+
+print("Modèle NLP chargé avec succès.")
 
 # Sanity check, it should return {"status": "ok"} with HTTP code 200
 @app.route("/health", methods=["GET"])
@@ -108,6 +159,7 @@ def check_is_poster():
         pipeline = OOD_DETECTOR['pipeline']
         threshold = OOD_DETECTOR['threshold']
 
+        features = get_features(file, FEATURE_EXTRACTOR_MODEL)
         scaled_features = pipeline[:-1].transform(features)
         distances, _ = pipeline[-1].kneighbors(scaled_features)
         
@@ -119,8 +171,7 @@ def check_is_poster():
         return jsonify({
             "is_poster": is_poster,
             "distance_score": max_distance,
-            "threshold": threshold,
-            "message": "It is a poster!" if is_poster else "This doesn't look like a poster."
+            "threshold": threshold
         })
 
     except Exception as e:
@@ -143,7 +194,7 @@ def predict_genre():
         return jsonify(e.errors()), 422
 
     try:
-        result = predict_genre_logic(req_data.plot)
+        result = predict_genre_logic(req_data.plot,MODEL_NLP, TOKENIZER,id2label)
         return jsonify(result)
         
     except Exception as e:

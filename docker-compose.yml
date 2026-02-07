@@ -1,4 +1,3 @@
-version: '3.8' # specify docker-compose version
 services: # services to run
   flask-api: # name of the first service
     #build: 

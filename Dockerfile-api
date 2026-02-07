@@ -1,13 +1,20 @@
 # Use an official Python runtime as the parent image
 FROM python:3.12.12-slim
 
+# Installation des dépendances système pour compiler Annoy
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+    
 # Set the working directory in the container to /app
 WORKDIR /project-app
 
 COPY requirements-api.txt .
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --trusted-host pypi.python.org -r requirements-api.txt
+RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements-api.txt
 
 #Download curl
 #RUN apt-get update && apt-get install -y curl grep sed && rm -rf /var/lib/apt/lists/*
@@ -25,7 +32,12 @@ RUN pip install --no-cache-dir gdown
 RUN gdown --id 1i03Dkl4o5ic-t-v-IfkoA8WXvLkUFehQ -O models/movie_genre_cpu.pt
 
 #Download the OOD model
-RUN gdown --id 1V4N-plBuXbJkVgTnhjH5EVsL4n9eBtyv -O models/ood_detector.joblib
+RUN gdown --id 1IWhq4da0x6qm480RiyHYDUMmDgbPDKYK -O models/ood_detector.joblib
+
+#Download the genre prediction based on synopsis
+RUN gdown --id 1clzxN-386oNMdPLYIco9-YMyctZxHJAv -O models/genre_model.pth
+RUN gdown --id 1B7CCrCvr79YkJs7f2UrInIvzTQROStOL -O models/movie_plots.ann 
+RUN gdown --id 1RYxUL5oiNVZFAyetZekgNl_5WR-6LkCr -O models/movie_data_processed.pkl
 
 # Make port 5000 available to the world outside this container
 EXPOSE 8000
