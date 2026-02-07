@@ -5,3 +5,9 @@ torchvision==0.24.1
 orjson==3.11.5
 joblib==1.5.2
 scikit-learn==1.7.2
+transformers>=4.30.0
+annoy==1.17.3
+accelerate
+safetensors
+huggingface_hub
+opencv-python-headless

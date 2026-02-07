@@ -1,19 +1,37 @@
-version: '3.8' # specify docker-compose version
-services: # services to run
-  flask-api: # name of the first service
-    #build: 
-      #context: . # specify the directory of the Dockerfile
-      #dockerfile: Dockerfile-api # specify the Dockerfile name
-    image: film-flask-app:latest 
-    ports:
-      - "8000:8000" # specify port mapping
+version: '3.8'
 
-  gradio-app: #Name of the second service
-    #build:
-      #context: . # specify the directory of the Dockerfile
-      #dockerfile: Dockerfile-gradio # specify the Dockerfile name
+services:
+  # --- SERVICE API (Backend) ---
+  flask-api:
+    container_name: movie_api  # Nom facile pour le retrouver
+    build: 
+      context: . 
+      dockerfile: Dockerfile-api
+    image: film-flask-app:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # On monte le code pour pouvoir développer en direct
+      - ./app:/app/app
+      - ./main.py:/app/main.py
+    environment:
+      - FLASK_ENV=development
+      - HF_HUB_OFFLINE=0
+
+  # --- SERVICE GRADIO (Frontend) ---
+  gradio-app:
+    container_name: movie_ui
+    build:
+      context: .
+      dockerfile: Dockerfile-gradio
     image: film-gradio-app:latest
     ports:
-      - "7860:7860" # specify port mapping
+      - "7860:7860"
+    environment:
+      # C'est LA ligne la plus importante :
+      # On utilise le nom du service "flask-api" défini ci-dessus
+      - API_URL=http://flask-api:8000
+    volumes:
+      - ./gradio-app.py:/app/gradio-app.py
     depends_on:
-      - flask-api # specify service dependency
+      - flask-api
