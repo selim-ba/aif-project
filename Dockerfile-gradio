@@ -1,22 +1,29 @@
-# Use an official Python runtime as the parent image
-FROM python:3.12.12-slim
+# 1. On s'aligne sur la version 3.10 pour être cohérent avec l'API
+FROM python:3.10-slim
 
-# Set the working directory in the container to /app
-WORKDIR /project-app
+# On utilise /app comme standard
+WORKDIR /app
 
+# 2. Installation des dépendances
 COPY requirements-gradio.txt .
-
-# Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements-gradio.txt
 
-# Copy the current directory contents into the container at /app
-COPY . /project-app
+# 3. Copie sélective (Plus propre que COPY . .)
+# On copie le script Gradio
+COPY gradio-app.py .
+# On copie le dossier 'app' (au cas où Gradio importerait des utilitaires communs)
+COPY app/ ./app
 
-# Make port 5000 available to the world outside this container
+# 4. CONFIGURATION RÉSEAU (CRUCIAL !)
+# Permet à Gradio d'être accessible depuis l'extérieur du conteneur
+ENV GRADIO_SERVER_NAME="0.0.0.0"
+
+# URL par défaut de l'API (sera surchargée par docker-compose)
+ENV API_URL="http://api:8000"
+
+# Logs immédiats
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 7860
 
-# Immediate logging without -t
-ENV PYTHONUNBUFFERED=1 
-
-# Run gradio-app.py when the container launchess
 CMD ["python", "gradio-app.py"]

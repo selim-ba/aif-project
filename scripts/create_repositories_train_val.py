@@ -1,22 +1,28 @@
 import shutil
 import random
+import sys
+import os
 from pathlib import Path
 
-# --- CONFIG ---
-# Where your raw, genre-sorted posters live
-SOURCE_DIR = Path("data/raw/sorted_movie_posters_paligema")
 
-# Where to create the train/val dataset used by PyTorch
-DEST_DIR = Path("data/processed/dataset")
+script_dir = Path(__file__).resolve().parent
+if script_dir.name == 'scripts':
+    project_root = script_dir.parent
+else:
+    project_root = script_dir
+
+SOURCE_DIR = project_root / "data/raw/sorted_movie_posters_paligema"
+
+
+DEST_DIR = project_root / "data" / "dataset"
 
 TRAIN_SPLIT = 0.8
 RANDOM_SEED = 42
-MOVE_INSTEAD_OF_COPY = False  # True to move files instead of copying
-# ----------------
+MOVE_INSTEAD_OF_COPY = False 
+
 
 random.seed(RANDOM_SEED)
 
-# Recognized image extensions (case-insensitive)
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff"}
 
 
@@ -32,11 +38,11 @@ def find_image_files(folder: Path):
 if not SOURCE_DIR.exists():
     raise SystemExit(f"Source directory not found: {SOURCE_DIR.resolve()}")
 
-# Create destination train/val root folders
+# create destination train/val root folders
 for split in ("train", "val"):
     (DEST_DIR / split).mkdir(parents=True, exist_ok=True)
 
-# Each subfolder of SOURCE_DIR is treated as a genre
+# each subfolder of SOURCE_DIR is treated as a genre
 genres = [d for d in SOURCE_DIR.iterdir() if d.is_dir()]
 if not genres:
     print(

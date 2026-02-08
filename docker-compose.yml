@@ -1,18 +1,23 @@
-services: # services to run
-  flask-api: # name of the first service
-    #build: 
-      #context: . # specify the directory of the Dockerfile
-      #dockerfile: Dockerfile-api # specify the Dockerfile name
-    image: film-flask-app:latest 
-    ports:
-      - "8000:8000" # specify port mapping
+version: '3.8'
 
-  gradio-app: #Name of the second service
-    #build:
-      #context: . # specify the directory of the Dockerfile
-      #dockerfile: Dockerfile-gradio # specify the Dockerfile name
-    image: film-gradio-app:latest
+services:
+  flask-api:
+    image: film-flask-app:latest   # <--- On utilise l'image chargée manuellement
+    container_name: movie_api
     ports:
-      - "7860:7860" # specify port mapping
+      - "8000:8000"
+    environment:
+      - FLASK_ENV=production
+      - HF_HUB_OFFLINE=0           # Important pour le 1er démarrage
+    # Pas de section 'volumes' ! Le code est déjà dans l'image.
+
+  gradio-app:
+    image: film-gradio-app:latest  # <--- Idem pour l'interface
+    container_name: movie_ui
+    ports:
+      - "7860:7860"
+    environment:
+      - API_URL=http://flask-api:8000
     depends_on:
-      - flask-api # specify service dependency
+      - flask-api
+    # Pas de section 'volumes' !

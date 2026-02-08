@@ -1,5 +1,18 @@
+import sys
+import os
 import json
 from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+
+if script_dir.name == 'scripts':
+    project_root = script_dir.parent
+else:
+    project_root = script_dir
+
+
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
 
 import torch
 import torch.nn as nn
@@ -7,13 +20,21 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from tqdm import tqdm
 
-from app.posters.model import build_model
+
+try:
+    from app.posters.model import build_model
+except ImportError:
+    print("si app.posters.model introuvable, utilisation de ResNet par défaut.")
+    from torchvision import models
+    def build_model(num_classes):
+        m = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        m.fc = nn.Linear(m.fc.in_features, num_classes)
+        return m
 
 
-# --- CONFIG ---
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-DATASET_DIR = PROJECT_ROOT / "dataset"
+DATASET_DIR = PROJECT_ROOT / "data" / "dataset"
 TRAIN_DIR = DATASET_DIR / "train"
 VAL_DIR = DATASET_DIR / "val"
 
@@ -22,13 +43,21 @@ NUM_EPOCHS = 10
 LEARNING_RATE = 1e-4
 
 MODELS_DIR = PROJECT_ROOT / "models"
-WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
+WEIGHTS_PATH = MODELS_DIR / "vision_weights.pth"
 GENRES_PATH = MODELS_DIR / "genres.json"
-# ---------------
 
+
+
+# def get_device() -> torch.device:
+#     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
 
 
 def get_transforms():
@@ -50,7 +79,6 @@ def load_datasets():
         raise SystemExit(
             f"Dataset folders not found.\n"
             f"Expected:\n - {TRAIN_DIR}\n - {VAL_DIR}\n"
-            f"Did you run scripts/create_repositories_train_val.py?"
         )
 
     transform = get_transforms()
@@ -93,7 +121,6 @@ def main():
 
     print(f"Genres (class order): {train_data.classes}")
 
-    # Build model
     model = build_model(num_classes=num_classes)
     model.to(device)
 
@@ -126,12 +153,11 @@ def main():
             f"- train loss: {avg_loss:.4f}, val acc: {val_acc:.4f}"
         )
 
-    # Save genres mapping
+
     with GENRES_PATH.open("w", encoding="utf-8") as f:
         json.dump({"classes": train_data.classes}, f, ensure_ascii=False, indent=2)
     print(f"Saved genre classes to {GENRES_PATH}")
 
-    # Save CPU-compatible weights
     model.to("cpu")
     torch.save(model.state_dict(), WEIGHTS_PATH)
     print(f"Saved model weights to {WEIGHTS_PATH} (CPU-compatible)")

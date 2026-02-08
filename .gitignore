@@ -22,12 +22,20 @@ __pycache__/
 # =========================
 data/
 dataset/
+data-old/
 
 # =========================
 # Model weights & artifacts
 # =========================
 
 models/
+models-old/
+#models/*.pt
+#models/*.bin
+#models/*.pkl
+#models/*.npy
+#models/*.joblib
+
 
 # =========================
 # Logs / temporary
@@ -35,3 +43,6 @@ models/
 *.log
 *.tmp
 *.tar.gz
+
+main-old.py
+gradio-app-old.py

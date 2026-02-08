@@ -1,3 +1,5 @@
+# app/posters/inference.py
+
 from typing import List, Dict
 import torch
 from PIL import Image
@@ -13,7 +15,7 @@ _transform = transforms.Compose([
 
 def preprocess_image(img: Image.Image) -> torch.Tensor:
     """
-    Apply the same preprocessing used during training and return a [1, C, H, W] tensor.
+    Meme processing que pendant l'entraînement, retourne un tenseur [1, C, H, W].
     """
     tensor = _transform(img)
     return tensor.unsqueeze(0)
@@ -21,7 +23,7 @@ def preprocess_image(img: Image.Image) -> torch.Tensor:
 
 def predict_genres(model, tensor: torch.Tensor, labels: List[str], top_k: int = 3) -> List[Dict]:
     """
-    Run inference on a single image tensor and return top-k genres with scores.
+    Inference sur un tenseur unique et retour les top-k genres (k fixé à 3 par défaut).
     """
     with torch.no_grad():
         logits = model(tensor)

@@ -1,179 +1,238 @@
+# main.py
+
 from pathlib import Path
 import json
 import joblib
+import pickle
+import torch
+import numpy as np
+import sys
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from flask import Flask, jsonify, request
 from PIL import Image
-from pydantic import ValidationError
-import torch
-import torch.nn as nn
-import pandas as pd
-from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
+
+# Imports Vision (Part 1)
+from app.posters.model import load_trained_model
+from app.posters.inference import preprocess_image, predict_genres
+
+# Imports Vision (Part 2)
+from app.validation.feature_extractor import FeatureExtractor
+
+# Imports NLP (Part 3)
+from transformers import DistilBertTokenizerFast
+from app.nlp.nlp_model import BertClf
+
+# Imports RAG (Part 4)
 from annoy import AnnoyIndex
+from app.rag.rag_model import RAG
 
-from app.plot.model import predict_genre_logic
-from app.plot.schemas import PlotRequest
-from app.posters.model import load_trained_model # resnet model
-from app.posters.inference import preprocess_image, predict_genres #the inference pipeline
-from app.validation.feature_extractor import FeatureExtractor #feature extraction model
-from app.validation.inference_ood import get_features #feature extraction function
-from app.plot import config
+app = Flask(__name__)
 
-app = Flask(__name__) #creation of the Flask application instance 
-
-# Loading paths
-PROJECT_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = PROJECT_ROOT / "models"
-WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
-GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
+DATA_DIR = PROJECT_ROOT / "data" # not used
 
-# Load classes : {"classes": ["action", "animation", "comedy", ...]}
-with GENRES_PATH.open("r", encoding="utf-8") as f:
-    data = json.load(f)
-CLASSES = data["classes"] #so that : CLASSES = ['action', 'animation', 'comedy', ...]
 
-# Loads classification model once when the server starts (so that it's not reloaded for every request)
-try :
-    print("Chargement du modèle de classification des posters...")
-    MODEL = load_trained_model(str(WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
-    print("Modèle de classification des posters chargé avec succès.")
-except:
-    print(f"Erreur lors du chargement du modèle de classification des posters depuis {WEIGHTS_PATH}")
-    MODEL = None
+# Configuration
+# 1. VISION
+VISION_WEIGHTS_PATH = MODELS_DIR / "vision_weights.pth"
+VISION_CLASSES_PATH = MODELS_DIR / "genres.json"
 
-#Load OOD model and feature extractor
+# 2. NLP 
+NLP_WEIGHTS_PATH = MODELS_DIR / "part3_nlp_weights.pth"
+NLP_CLASSES_PATH = MODELS_DIR / "part3_classes.json"
+
+# 3. RAG 
+RAG_INDEX_PATH = MODELS_DIR / "part4_rag_index.ann"
+RAG_MAP_PATH = MODELS_DIR / "part4_rag_map.json"
+RAG_BROCHURE_PATH = MODELS_DIR / "part4_rag_brochure.pkl"
+
+
+# Classes pour vision
+CLASSES = []
+if VISION_CLASSES_PATH.exists():
+    with VISION_CLASSES_PATH.open("r", encoding="utf-8") as f:
+        CLASSES = json.load(f)["classes"]
+else:
+    # Fallback sur l'ancien emplacement
+    OLD_GENRES_PATH = PROJECT_ROOT / "app/posters/genres.json"
+    if OLD_GENRES_PATH.exists():
+        with OLD_GENRES_PATH.open("r", encoding="utf-8") as f:
+            CLASSES = json.load(f)["classes"]
+
+
+# VISION (ResNet)
+MODEL = None
+FEATURE_EXTRACTOR_MODEL = None
+OOD_DETECTOR = None
+
 try:
-    print("Chargement du détecteur OOD...")
-    OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
-    print("Détecteur OOD chargé.")
-except:
-    print("Attention: 'ood_detector.joblib' introuvable.")  
-    OOD_DETECTOR = None
-
-FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
-FEATURE_EXTRACTOR_MODEL.to("cpu")
-FEATURE_EXTRACTOR_MODEL.eval()
-
-# Load classification model of plots
-# Model Definition
-class BertClf(nn.Module):
-    def __init__(self, distilbert_model):
-        super(BertClf, self).__init__()
-        self.distilbert = distilbert_model
+    if VISION_WEIGHTS_PATH.exists():
+        print(f"Chargement Vision (Part 1 & 2) ({VISION_WEIGHTS_PATH.name})...")
+        MODEL = load_trained_model(str(VISION_WEIGHTS_PATH), num_classes=len(CLASSES), device="cpu")
         
-    def forward(self, input_ids, mask):
-        out = self.distilbert(input_ids, attention_mask=mask)
-        return out.logits, out.hidden_states, out.attentions
+        FEATURE_EXTRACTOR_MODEL = FeatureExtractor(MODEL)
+        FEATURE_EXTRACTOR_MODEL.to("cpu")
+        FEATURE_EXTRACTOR_MODEL.eval()
+        
+        try:
+            OOD_DETECTOR = joblib.load(MODELS_DIR / "ood_detector.joblib")
+        except:
+            OOD_DETECTOR = None
+            
+        print("Partie 1 & 2 prêtes.")
+    else:
+        print(f"Partie 1 & 2 ignorées : '{VISION_WEIGHTS_PATH}' introuvable dans models/.")
+except Exception as e:
+    print(f"Erreur chargement Partie 1 & 2 : {e}")
 
-# Load resources
+# NLP (Part 3 - DistilBERT)
+NLP_MODEL = None
+NLP_TOKENIZER = None
+NLP_CLASSES = {}
 
-print('Chargement du modèle NLP') # test print to ensure everything is going right
+try:
+    if NLP_WEIGHTS_PATH.exists() and NLP_CLASSES_PATH.exists():
+        print(f"Chargement NLP (Part 3) ({NLP_WEIGHTS_PATH.name})...")
+        
+        with open(NLP_CLASSES_PATH, "r", encoding="utf-8") as f:
+            NLP_CLASSES = json.load(f)
+            NLP_CLASSES = {int(k): v for k, v in NLP_CLASSES.items()}
 
-df = pd.read_pickle(config.PATH_BROCHURE)
-id2label = {i: cat for i, cat in enumerate(df['movie_category'].unique())}
-label2id = {cat: i for i, cat in enumerate(df['movie_category'].unique())}
+        NLP_MODEL = BertClf('distilbert-base-uncased', num_labels=len(NLP_CLASSES))
+        NLP_MODEL.load_state_dict(torch.load(NLP_WEIGHTS_PATH, map_location=torch.device('cpu')))
+        NLP_MODEL.to("cpu")
+        NLP_MODEL.eval()
+        
+        NLP_TOKENIZER = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+        print("Partie 3 prête.")
+    else:
+        print(f"Partie 3 ignorée : Fichiers 'part3_...' introuvables dans models/.")
+except Exception as e:
+    print(f" Erreur Partie 3 : {e}")
 
-TOKENIZER = DistilBertTokenizerFast.from_pretrained(config.MODEL_NAME)
 
-base_model = DistilBertForSequenceClassification.from_pretrained(
-    config.MODEL_NAME, 
-    num_labels=len(label2id),
-    output_attentions=False, 
-    output_hidden_states=False
-)
-print("Modèle de base DistilBERT chargé.")
-MODEL_NLP = BertClf(base_model)
-MODEL_NLP.load_state_dict(torch.load(config.PATH_WEIGHTS, map_location="cpu"))
-MODEL_NLP.to("cpu")
-MODEL_NLP.eval()
+#  RAG (Part 4 - Qwen + CLIP + Annoy)
+RAG_MODEL = None
 
-annoy_index = AnnoyIndex(768, 'angular')
-annoy_index.load(config.PATH_INDEX)
+def init_rag():
+    global RAG_MODEL
+    missing = []
+    if not RAG_INDEX_PATH.exists(): missing.append(RAG_INDEX_PATH.name)
+    if not RAG_BROCHURE_PATH.exists(): missing.append(RAG_BROCHURE_PATH.name)
+    
+    if missing:
+        print(f"Erreur Partie 4 RAG : Fichiers manquants dans models/ : {missing}")
+        return False
 
-print("Modèle NLP chargé avec succès.")
+    try:
+        print("Initialisation RAG Partie 4..")
+        
+        annoy_index = AnnoyIndex(512, 'angular')
+        annoy_index.load(str(RAG_INDEX_PATH))
 
-# Sanity check, it should return {"status": "ok"} with HTTP code 200
+        with open(RAG_MAP_PATH, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+            # Conversion obligatoire des clés str -> int pour Annoy
+            id_map = {int(k): v for k, v in raw_data.items()}
+
+        with open(RAG_BROCHURE_PATH, "rb") as f:
+            movies = pickle.load(f)
+
+        CONFIG = {
+            "FOUND_MODEL_PATH": "Qwen/Qwen3-0.6B",
+            "CLIP_MODEL_ID": "openai/clip-vit-base-patch32",
+            "SYSTEM_PROMPT": "You are a helpful movie assistant..."
+        }
+
+        RAG_MODEL = RAG(CONFIG, annoy_index, id_map, movies)
+        print("Partie 4 prête")
+        return True
+
+    except Exception as e:
+        print(f"Erreur Partie 4: {e}")
+        return False
+
+init_rag()
+
+##############
+# ROUTES API #
+##############
+
 @app.route("/health", methods=["GET"])
 def health():
-    """ health check."""    
-    return jsonify({"status": "ok"}), 200
+    return jsonify({
+        "status": "ok", 
+        "rag_part4": RAG_MODEL is not None,
+        "nlp_part3": NLP_MODEL is not None,
+        "vision": MODEL is not None
+    }), 200
 
-# Main prediction route
+# Chat
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    if RAG_MODEL is None: return jsonify({"error": "Modèle partie 4 (RAG) non chargé"}), 503
+    data = request.get_json()
+    query = data.get("query", "").strip()
+    if not query: return jsonify({"error": "Empty query"}), 400
+    try:
+        print(f"User: {query}")
+        return jsonify({"response": RAG_MODEL.ask(query), "success": True})
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+@app.route("/api/reset_chat", methods=["POST"])
+def reset_chat():
+    if RAG_MODEL: RAG_MODEL.reset_chat()
+    return jsonify({"success": True}), 200
+
+# NLP (3)
+@app.route("/api/predict_plot_genre", methods=["POST"])
+def predict_plot_genre():
+    if NLP_MODEL is None: return jsonify({"error": "Modèle partie 3 (NLP) non chargé"}), 503
+    data = request.get_json()
+    plot = data.get("plot", "").strip()
+    if not plot: return jsonify({"error": "Empty plot"}), 400
+    try:
+        encoding = NLP_TOKENIZER(plot, max_length=256, padding='max_length', truncation=True, return_tensors='pt')
+        with torch.no_grad():
+            logits, _ = NLP_MODEL(encoding['input_ids'].to("cpu"), encoding['attention_mask'].to("cpu"))
+            probs = torch.nn.functional.softmax(logits, dim=1)
+        top_probs, top_indices = torch.topk(probs, 3)
+        results = [{"genre": NLP_CLASSES.get(idx.item(), "Unknown"), "score": float(score)} for score, idx in zip(top_probs[0], top_indices[0])]
+        return jsonify({"predictions": results})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Vision (1/2)
 @app.route("/api/predict_poster_genre", methods=["POST"])
 def predict_poster_genre():
-    """
-    Accepts an image file and returns top-k predicted genres.
-
-    Expected request:
-      - Content-Type: multipart/form-data
-      - Field name: "file"
-
-    Response:
-      {
-        "predictions": [
-          {"genre": "comedy", "score": 0.73},
-          ...
-        ]
-      }
-    """
-    if "file" not in request.files:
-        """
-          Client must send :
-            multipart/form-data (http request format, tells the server that the request contains multiple parts, and some of them are binary files)
-            file =<image>
-        """
-        return jsonify({"error": "No file uploaded. Expected field 'file'."}), 400
-
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Empty filename."}), 400 #prevens empty upload
-
-    # guards against, non-image files, corrupt images or unsupported formats
+    if MODEL is None: return jsonify({"error": "Modèle partie 1 (Vision) non chargé"}), 503
+    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
     try:
-        image = Image.open(file.stream).convert("RGB")
+        image = Image.open(request.files['file'].stream).convert("RGB")
+        input_tensor = preprocess_image(image).to("cpu")
+        return jsonify({"predictions": predict_genres(MODEL, input_tensor, CLASSES)})
     except Exception as e:
-        return jsonify({"error": f"Unable to read image: {e}"}), 400
+        return jsonify({"error": str(e)}), 500
 
-    # here we run the ML inference
-    tensor = preprocess_image(image) #applies training transforms
-    predictions = predict_genres(MODEL, tensor, CLASSES, top_k=3) #applies torch.softmax and returns top 3 best predictions
-    # labels are mapped with CLASSES
-    return jsonify({"predictions": predictions}), 200 #json format response
-
-#OOD route
 @app.route("/api/check_is_poster", methods=["POST"])
 def check_is_poster():
-    """
-    Route pour vérifier si l'image est un poster.
-    """
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    
-    file = request.files['file']
-
-    if OOD_DETECTOR is None:
-        return jsonify({"error": "OOD model not loaded"}), 500
-
+    if OOD_DETECTOR is None: return jsonify({"error": "Modèle partie 2 (OOD) non chargé"}), 503
+    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
     try:
+        image = Image.open(request.files['file'].stream).convert("RGB")
+        input_tensor = preprocess_image(image).to("cpu")
+        with torch.no_grad():
+            features = FEATURE_EXTRACTOR_MODEL(input_tensor).cpu().numpy()
         pipeline = OOD_DETECTOR['pipeline']
-        threshold = OOD_DETECTOR['threshold']
-
-        features = get_features(file, FEATURE_EXTRACTOR_MODEL)
-        scaled_features = pipeline[:-1].transform(features)
-        distances, _ = pipeline[-1].kneighbors(scaled_features)
-        
-        max_distance = float(distances.max())
-
-        # 5. Décision basée sur le seuil
-        is_poster = True if max_distance <= threshold else False
-        
-        return jsonify({
-            "is_poster": is_poster,
-            "distance_score": max_distance,
-            "threshold": threshold
-        })
-
+        dist = float(pipeline[-1].kneighbors(pipeline[:-1].transform(features))[0].max())
+        is_poster = bool(dist <= OOD_DETECTOR['threshold'])
+        return jsonify({"is_poster": is_poster, "anomaly_score": dist})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -201,6 +260,5 @@ def predict_genre():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    # For local dev only
-    app.run(host="0.0.0.0", port=8000, debug=True) 
-
+    print("Serveur Flask")
+    app.run(host="0.0.0.0", port=8000, debug=False)
