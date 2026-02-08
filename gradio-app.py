@@ -4,11 +4,7 @@ import gradio as gr
 import requests
 import os
 
-# API base URL - uncomment the appropriate one
-API_URL = "http://127.0.0.1:8000"  # local testing
-# API_URL = "http://host.docker.internal:8000"  # docker on Mac/Windows
-# API_URL = "http://flask-api:8000"  # docker-compose / cloud
-
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 # Part 1&2 : Poster Genre Prediction
 def predict_poster_genre_gradio(image_file):

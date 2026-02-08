@@ -75,7 +75,7 @@ class RAG:
         results = []
         for idx, dist in zip(indices, distances):
             # raw_key = self.id_map.get(idx)
-            raw_key = self.id_map.get(str(idx))
+            raw_key = self.id_map.get(idx)
             brochure_key = raw_key
             if isinstance(raw_key, dict):
                 brochure_key = list(raw_key.values())[0]

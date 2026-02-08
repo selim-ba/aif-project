@@ -1,37 +1,23 @@
 version: '3.8'
 
 services:
-  # --- SERVICE API (Backend) ---
   flask-api:
-    container_name: movie_api  # Nom facile pour le retrouver
-    build: 
-      context: . 
-      dockerfile: Dockerfile-api
-    image: film-flask-app:latest
+    image: film-flask-app:latest   # <--- On utilise l'image chargée manuellement
+    container_name: movie_api
     ports:
       - "8000:8000"
-    volumes:
-      # On monte le code pour pouvoir développer en direct
-      - ./app:/app/app
-      - ./main.py:/app/main.py
     environment:
-      - FLASK_ENV=development
-      - HF_HUB_OFFLINE=0
+      - FLASK_ENV=production
+      - HF_HUB_OFFLINE=0           # Important pour le 1er démarrage
+    # Pas de section 'volumes' ! Le code est déjà dans l'image.
 
-  # --- SERVICE GRADIO (Frontend) ---
   gradio-app:
+    image: film-gradio-app:latest  # <--- Idem pour l'interface
     container_name: movie_ui
-    build:
-      context: .
-      dockerfile: Dockerfile-gradio
-    image: film-gradio-app:latest
     ports:
       - "7860:7860"
     environment:
-      # C'est LA ligne la plus importante :
-      # On utilise le nom du service "flask-api" défini ci-dessus
       - API_URL=http://flask-api:8000
-    volumes:
-      - ./gradio-app.py:/app/gradio-app.py
     depends_on:
       - flask-api
+    # Pas de section 'volumes' !

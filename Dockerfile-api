@@ -1,7 +1,6 @@
 # Utilisation de Python 3.10
 FROM python:3.10-slim
 
-# CORRECTION ICI : On remplace 'libgl1-mesa-glx' par 'libgl1'
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1 \
@@ -29,17 +28,17 @@ RUN mkdir -p models
 # =========================================================
 
 # --- PARTIE 1 & 2 : Vision & OOD ---
-RUN gdown --id 1BPnjdgWKumh1PBPFZ1T6_8ntQouYyppH -O models/vision_weights.pth
-RUN gdown --id 163lT4lxarRYRneQ8C3ddXuqDuwMfOSq7 -O models/ood_detector.joblib
+RUN gdown --id 1LIad0Gvsvi1ikBe7eO8LzBt2rAcxYS7N -O models/vision_weights.pth
+RUN gdown --id 18q_qfJKL9rWsmMuhP23r3PMOxodPteYo -O models/ood_detector.joblib
 
 # --- PARTIE 3 : NLP (DistilBERT) ---
-RUN gdown --id 1tYdugwnsiQP9bmtxTNQopda0oLSIGcwz -O models/part3_nlp_weights.pth
-RUN gdown --id 1NNbIE7y1kFxPpZ87Afa3eRVPBTfLncVr -O models/part3_classes.json
+RUN gdown --id 14wOsDyYa5m8TETauasZSFZdchNER8qaY -O models/part3_nlp_weights.pth
+RUN gdown --id 1i7bbms05XamcHxhOLKyd6AogATaPoqEe -O models/part3_classes.json
 
 # --- PARTIE 4 : RAG (Qwen/CLIP/Annoy) ---
-RUN gdown --id 1Te1r9O8VuYZUorocz16vesIOEDUy9GzL -O models/part4_rag_index.ann
-RUN gdown --id 1qM2Lb_BMvrRvW2jKL2AnTKqkcY-Hft5r -O models/part4_rag_map.json
-RUN gdown --id 17Hl93qogOQnKl4uIPX-4ZEwjru7NPrLu -O models/part4_rag_brochure.pkl
+RUN gdown --id 1UNxHtKq-_YduxbxcgNvWHvHuyyF7Onfl -O models/part4_rag_index.ann
+RUN gdown --id 1TLxhvUa2IX0tWuYGYvH-9F-2Wgi2NakM -O models/part4_rag_brochure.pkl
+RUN gdown --id 1u8lshUFW7KCy1PBNe_DqcXcmC0Y6xn4z -O models/part4_rag_map.json
 
 # =========================================================
 

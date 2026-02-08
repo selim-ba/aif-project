@@ -136,9 +136,9 @@ def init_rag():
         annoy_index.load(str(RAG_INDEX_PATH))
 
         with open(RAG_MAP_PATH, "r", encoding="utf-8") as f:
-            #id_map = {int(k): v for k, v in json.load(f).items()}
-            id_map = json.load(f) 
-            print(type(next(iter(id_map.keys()))))
+            raw_data = json.load(f)
+            # Conversion obligatoire des clés str -> int pour Annoy
+            id_map = {int(k): v for k, v in raw_data.items()}
 
         with open(RAG_BROCHURE_PATH, "rb") as f:
             movies = pickle.load(f)
