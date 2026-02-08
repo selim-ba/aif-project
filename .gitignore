@@ -27,6 +27,7 @@ data-old/
 # =========================
 # Model weights & artifacts
 # =========================
+
 models/
 models-old/
 #models/*.pt
@@ -41,7 +42,6 @@ models-old/
 # =========================
 *.log
 *.tmp
-
 *.tar.gz
 
 main-old.py

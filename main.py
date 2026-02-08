@@ -236,6 +236,29 @@ def check_is_poster():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+#NLP route
+@app.route("/api/plot_predict_genre", methods=['POST'])
+def predict_genre():
+    """
+    Flask route to predict the genre of a movie based on its plot.
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "No JSON data"}), 400
+    try:
+        # Will raise error if plot is missing
+        req_data = PlotRequest(**data)
+    except ValidationError as e:
+        return jsonify(e.errors()), 422
+
+    try:
+        result = predict_genre_logic(req_data.plot,MODEL_NLP, TOKENIZER,id2label)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     print("Serveur Flask")
     app.run(host="0.0.0.0", port=8000, debug=False)

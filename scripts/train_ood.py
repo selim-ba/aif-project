@@ -6,8 +6,8 @@ import joblib
 import numpy as np
 from pathlib import Path
 from app.posters.model import load_trained_model
-from scripts.train_posters_cnn import get_device, load_datasets
-from sklearn.svm import OneClassSVM
+from scripts.train_posters_cnn import get_device, load_datasets, get_transforms
+from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from app.validation.feature_extractor import FeatureExtractor
@@ -18,10 +18,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = PROJECT_ROOT / "dataset"
 TRAIN_DIR = DATASET_DIR / "train"
 VAL_DIR = DATASET_DIR / "val"
+VAL_OOD = DATASET_DIR / "val_OOD"
 
 MODELS_DIR = PROJECT_ROOT / "models"
 WEIGHTS_PATH = MODELS_DIR / "movie_genre_cpu.pt"
 GENRES_PATH = MODELS_DIR / "genres.json"
+
+
+def get_ood_score(knn_model, feature_test):
+    distances, _ = knn_model.kneighbors(feature_test.reshape(1, -1))
+    return np.max(distances)
 
 
 def main():
@@ -29,6 +35,10 @@ def main():
     print("Using device:", device)
 
     train_data, val_data, train_loader, val_loader = load_datasets()
+    transform = get_transforms()
+    ood_data= datasets.ImageFolder(str(VAL_OOD), transform=transform)
+    ood_loader = DataLoader(ood_data, batch_size=BATCH_SIZE, shuffle=True)
+    
     num_classes = len(train_data.classes)
 
     # charger le modèle pré-entraîné
@@ -58,11 +68,12 @@ def main():
     # entraîner le modèle OOD (OneClassSVM)
     clf = make_pipeline(
         StandardScaler(),
-        OneClassSVM(kernel="rbf", nu=0.01, gamma='scale')
+        # On utilise la distance Euclidienne (L2)
+        NearestNeighbors(n_neighbors=5, algorithm='auto', metric='minkowski')
     )
     # nu=0.01 est l'équivalent de la contamination 
 
-    print(f"Entraînement OneClassSVM sur {features_array.shape[0]} images...")
+    print(f"Entraînement Nearest Neighbors sur {features_array.shape[0]} images...")
     clf.fit(features_array)
     
     joblib.dump(clf, str(MODELS_DIR / "ood_detector.joblib"))
